@@ -9,7 +9,7 @@ A student-facing web page that checks whether a single pasted paragraph meets ba
 | Requirement | How it is judged | Result shown to student |
 |---|---|---|
 | **Single paragraph** | Code: counts line-break-separated blocks | Complete / Incomplete, with number of paragraphs found |
-| **Three distinct quotations** | Code: finds “curly”, "straight" and ‘single’ quotations of 3+ words; repeated quotes count once | Complete / Incomplete, with "N of 3 distinct", repeats named, unclosed quote marks flagged |
+| **Three distinct quotations** | Azure identifies the direct quotations as a marker would (missing or mismatched quotation marks and quotes-within-quotes still count; scare-quoted terms don't). Code then confirms each one's exact words appear in the paragraph, so none can be invented, and counts repeats once | Complete / Incomplete, with "N of 3 distinct", each quotation listed, and any missing quotation mark noted |
 | **Topic sentence** (sentence 1) | Code catches questions, exclamations, fragments, "This paragraph will discuss…"; Azure judges declarative and clear | Meets / Needs revision, with each issue listed |
 | **Evidentiary claim** per quotation | Azure: is the quote tied to a specific claim and a named noun or instance (author, text, provision, event…)? | Per-quotation pass/fail, reason, and "X of N lack one" |
 | **Analysis after each quotation** | Code: flags no following sentence, another quotation, or reused wording (4+ shared words). Azure: does the *immediately following sentence*, on its own, state the quotation's evidentiary value in the student's words and match what the quote says? | Per-quotation pass/fail with the category (restates, continues the argument, assumes it is self-evident, mismatch, nothing follows), the quote, and the next sentence |
@@ -22,13 +22,13 @@ Paragraph and quotation count are "soft" (complete/incomplete only). The others 
 
 Negatives inside direct quotations are ignored, since they belong to the source.
 
-**If Azure is unavailable or its content filter declines a text**, the student still gets the code-based results (paragraph, quotes, obvious negative patterns, rule-based topic-sentence problems). AI-judged sections are shown as "Not checked" and the page says why.
+**If Azure is not configured, unavailable, or its content filter declines a text, nothing is assessed.** The student sees only an error message (and the attempt is logged to Qualtrics with the error as `responseText`). If no quotations are found, evidentiary claims and analysis show "Not assessed".
 
 ## Setup
 
 1. **Create the repo** from this template on GitHub (name it e.g. `paragraph-checker-azure`).
 2. **Deploy the worker:** dash.cloudflare.com → Compute (Workers) → Create → Hello World → name it → Edit code → select all, delete, paste `worker.js` → Deploy. Visiting the worker URL should show "Method Not Allowed".
-3. **Set variables** (Settings → Variables and Secrets), then click **Deploy**: see `env-vars-checklist.txt`. Required: `AZURE_OPENAI_KEY` (Secret), `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT_NAME`. For logging: `QUALTRICS_API_TOKEN` (Secret), `QUALTRICS_SURVEY_ID`, `QUALTRICS_DATACENTER`. Optional: `AZURE_API_VERSION` (defaults to `2024-04-01-preview`, same as the template) and `ALLOWED_ORIGIN` = `https://<username>.github.io` so only your page can use the worker. If a variable is missing, the page's partial-result banner names it.
+3. **Set variables** (Settings → Variables and Secrets), then click **Deploy**: see `env-vars-checklist.txt`. Required: `AZURE_OPENAI_KEY` (Secret), `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT_NAME`. For logging: `QUALTRICS_API_TOKEN` (Secret), `QUALTRICS_SURVEY_ID`, `QUALTRICS_DATACENTER`. Optional: `AZURE_API_VERSION` (defaults to `2024-04-01-preview`, same as the template) and `ALLOWED_ORIGIN` = `https://<username>.github.io` so only your page can use the worker. If a required Azure variable is missing, the error message names it.
 4. **Qualtrics survey** needs three embedded data fields: `queryText`, `responseText`, `feedback`. Filter `feedback = not_helpful` to find checks students flagged.
 5. **Point the page at the worker:** in `index.html` set `WORKER_URL`, commit.
 6. **Publish:** repo → Settings → Pages → branch `main`, folder `/ (root)`.
@@ -44,14 +44,14 @@ Constants at the top of `worker.js` (redeploy after editing):
 
 ## Testing
 
-`npm test` (Node 18+) runs 27 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
+`npm test` (Node 18+) runs 19 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
 
 ## Known limits
 
 - The topic sentence is taken to be the **first sentence**.
 - "Immediately following" means the next sentence, strictly. If a student explains the quote in the same sentence ("…, which shows…") or two sentences later, the check fails by design: the explanation must stand on its own after the evidence. Two quotes in one sentence share one following sentence, and each is judged separately.
 - Text pasted from a PDF often has hard line breaks that read as several paragraphs; the report says so.
-- Straight single quotes (`'like this'`) are not treated as quotation marks, because they are indistinguishable from apostrophes.
+- Which passages count as quotations is the AI's judgement; code only confirms the words are really in the paragraph.
 - The AI-judged parts (topic sentence clarity, evidentiary claims, negative framing) are judgements, not proofs; the page tells students to treat them as a prompt to re-read. Spot-check with real student paragraphs before relying on it.
 - A model can miss or over-flag negatives. The code patterns are a floor for parallelism, not a ceiling.
 

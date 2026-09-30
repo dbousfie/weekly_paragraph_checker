@@ -88,7 +88,7 @@
     <summary>What is being checked</summary>
     <ul class="small">
       <li><strong>Single paragraph</strong>: the text is one paragraph (complete / incomplete).</li>
-      <li><strong>Three distinct quotations</strong>: at least three different quotations of three or more words each (complete / incomplete).</li>
+      <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). Quotations are identified by the AI, so a missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it.</li>
       <li><strong>Topic sentence</strong>: the first sentence is a clear, declarative statement of your main claim.</li>
       <li><strong>Evidentiary claims</strong>: each quotation is tied to a specific claim and a named instance (a named author, text, provision, event, and so on).</li>
       <li><strong>Analysis after each quotation</strong>: the sentence right after a quotation states, in your own words, what the quotation shows. It does not restate it, treat it as self-evident, or carry on the argument without saying what the evidence establishes.</li>
@@ -117,7 +117,7 @@
 
 <script>
   // CHANGE THIS to your Cloudflare worker URL (see README).
-  const WORKER_URL = "https://weeklypararaphchecker.danbousfield.workers.dev/";
+  const WORKER_URL = "https://paragraph-checker.YOURNAME.workers.dev/";
   const MAX_CHARS = 6000;
 
   const $ = (id) => document.getElementById(id);
@@ -183,16 +183,12 @@
     let todo = 0;
     if (!r.paragraph.complete) todo++;
     if (!r.quotes.complete) todo++;
-    if (r.topic.pass === false || r.topic.partialFail) todo++;
-    if (r.evidence.checked && r.evidence.failed > 0) todo++;
+    if (r.topic.pass === false) todo++;
+    if (r.evidence.failed > 0) todo++;
     if (r.analysis.failed > 0) todo++;
     if (negFraming > 0) todo++;
     if (negPar > 0) todo++;
-    const notChecked = r.partial;
-
-    if (r.partial) nodes.push(banner("warn", `Partial result. ${r.partialReason} The sections marked "Not checked" could not be reviewed; everything else below is complete.`));
-    if (todo === 0 && !notChecked) nodes.push(banner("ok", "All requirements met. Every check below passed."));
-    else if (todo === 0) nodes.push(banner("info", "Nothing to fix in the sections that were checked."));
+    if (todo === 0) nodes.push(banner("ok", "All requirements met. Every check below passed."));
     else nodes.push(banner("bad", `${plural(todo, "requirement")} to revisit. Details and locations are below.`));
 
     nodes.push(el("h2", null, "Summary"));
@@ -236,20 +232,18 @@
     rows.push(row("Three distinct quotations", r.quotes.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
       `${r.quotes.distinct} of ${r.quotes.required} distinct`, r.quotes.found !== r.quotes.distinct ? `${r.quotes.found} found, ${r.quotes.found - r.quotes.distinct} repeated` : ""));
 
-    if (r.topic.pass === null && !r.topic.partialFail) rows.push(row("Topic sentence", pill("na", "Not checked"), "—", ""));
-    else rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
+    rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
 
-    if (!r.evidence.checked) rows.push(row("Evidentiary claims", pill("na", "Not checked"), "—", ""));
+    if (!r.evidence.total) rows.push(row("Evidentiary claims", pill("na", "Not assessed"), "—", "No quotations found"));
     else rows.push(row("Evidentiary claims", r.evidence.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
       `${r.evidence.failed} of ${r.evidence.total} quotations lack one`, "Each quotation needs a specific claim and a named instance"));
 
-    if (!r.analysis.checked && !r.analysis.failed) rows.push(row("Analysis after each quotation", pill("na", "Not checked"), "—", ""));
+    if (!r.analysis.total) rows.push(row("Analysis after each quotation", pill("na", "Not assessed"), "—", "No quotations found"));
     else rows.push(row("Analysis after each quotation", r.analysis.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
-      `${r.analysis.failed} of ${r.analysis.total} quotations lack it`, r.analysis.checked ? "The next sentence must state the quotation's value in your own words" : "Only rule-based checks ran"));
+      `${r.analysis.failed} of ${r.analysis.total} quotations lack it`, "The next sentence must state the quotation's value in your own words"));
 
-    const negNote = r.negatives.checked ? "" : "Only obvious patterns could be checked";
-    rows.push(row("Negative framing", negFraming ? pill("bad", "Found") : (r.negatives.checked ? pill("ok", "None found") : pill("na", "Not checked")), plural(negFraming, "instance"), negNote));
-    rows.push(row("Negative parallelism", negPar ? pill("bad", "Found") : (r.negatives.checked ? pill("ok", "None found") : pill("na", "None found in obvious patterns")), plural(negPar, "instance"), negNote));
+    rows.push(row("Negative framing", negFraming ? pill("bad", "Found") : pill("ok", "None found"), plural(negFraming, "instance"), ""));
+    rows.push(row("Negative parallelism", negPar ? pill("bad", "Found") : pill("ok", "None found"), plural(negPar, "instance"), ""));
 
     const t = el("table", { class: "score" },
       el("thead", null, el("tr", null, el("th", null, "Requirement"), el("th", null, "Status"), el("th", null, "Count"), el("th", null, "Note"))),
@@ -298,29 +292,31 @@
     const q = r.quotes, n = [el("h3", null, "Three distinct quotations")];
     n.push(el("div", { class: "item " + (q.complete ? "ok" : "bad") },
       el("span", { class: "lbl" }, q.complete ? "Complete. " : "Incomplete. "),
-      `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} of ${q.minWords}+ words found; ${q.required} required.`));
+      `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} found; ${q.required} required.`));
+    for (const it of q.items) {
+      if (it.duplicateOf) continue;
+      n.push(el("div", { class: "item" + (it.notes.length ? " bad" : "") },
+        el("span", { class: "lbl" }, `Q${it.id} (sentence ${it.sentence})` + (it.notes.length ? `: ${it.notes.join(" and ")}.` : ".")),
+        el("blockquote", null, it.text)));
+    }
     for (const it of q.items) {
       if (it.duplicateOf) n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Q${it.id} repeats Q${it.duplicateOf}. `), "It is not counted as a separate quotation.", el("blockquote", null, it.text)));
     }
-    for (const s of q.ignoredShort) n.push(el("div", { class: "item" }, el("span", { class: "lbl" }, "Not counted: "), `“${s.text}” in sentence ${s.sentence} is shorter than ${q.minWords} words, so it reads as a term, not a quotation.`));
-    for (const w of q.warnings) n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, "Punctuation: "), w));
+    if (q.unmatched) n.push(el("p", { class: "small muted" }, `${q.unmatched} possible ${q.unmatched === 1 ? "quotation was" : "quotations were"} not counted because the exact words could not be matched in your paragraph.`));
     return n;
   }
 
   function detailTopic(r) {
     const t = r.topic, n = [el("h3", null, "Topic sentence")];
     n.push(el("blockquote", { class: "muted", style: "margin:.2rem 0 .4rem;padding-left:.7rem;border-left:3px solid var(--line)" }, t.text));
-    if (t.pass === null && !t.partialFail) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
     if (!t.issues.length) { n.push(el("div", { class: "item ok" }, el("span", { class: "lbl" }, "Meets. "), "Sentence 1 is a clear, declarative statement.")); return n; }
     t.issues.forEach((i, k) => n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Issue ${k + 1}. `), i)));
-    if (!t.checked) n.push(el("p", { class: "small muted" }, "Only rule-based checks ran, so other problems may exist."));
     return n;
   }
 
   function detailEvidence(r) {
     const e = r.evidence, n = [el("h3", null, "Evidentiary claims")];
-    if (!e.checked) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
-    if (!e.total) { n.push(el("div", { class: "item" }, "No quotations were counted, so there is nothing to assess yet.")); return n; }
+    if (!e.total) { n.push(el("div", { class: "item" }, "Not assessed: no quotations were found.")); return n; }
     n.push(el("p", null, `${e.failed} of ${e.total} ${e.total === 1 ? "quotation lacks" : "quotations lack"} a specific evidentiary claim tied to a named instance.`));
     for (const it of e.items) {
       n.push(el("div", { class: "item " + (it.pass ? "ok" : "bad") },
@@ -336,8 +332,7 @@
   function detailAnalysis(r) {
     const a = r.analysis, n = [el("h3", null, "Analysis after each quotation")];
     n.push(el("p", { class: "small muted" }, "Evidence first, then analysis. The sentence right after each quotation should say, in your own words, what the quotation shows. It should not restate the quotation, assume it speaks for itself, or move on to the next point."));
-    if (!a.total) { n.push(el("div", { class: "item" }, "No quotations were counted, so there is nothing to assess yet.")); return n; }
-    if (!a.checked && !a.failed) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
+    if (!a.total) { n.push(el("div", { class: "item" }, "Not assessed: no quotations were found.")); return n; }
     n.push(el("p", null, `${a.failed} of ${a.total} ${a.total === 1 ? "quotation lacks" : "quotations lack"} its own explanation of evidentiary value in the sentence that follows.`));
     for (const it of a.items) {
       if (it.pass === null) continue;
@@ -359,7 +354,7 @@
   function negBlock(list, title, kind, r) {
     const n = [el("h3", null, `${title} (${list.length})`)];
     if (!list.length) {
-      n.push(el("div", { class: "item " + (r.negatives.checked ? "ok" : "") }, r.negatives.checked ? "None found." : "None found in the obvious patterns. The full AI review was unavailable."));
+      n.push(el("div", { class: "item ok" }, "None found."));
       return n;
     }
     for (const it of list) {
