@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Paragraph Structure Checker</title>
+  <style>
+    :root {
+      --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0; --panel: #f6f8fa;
+      --ok: #1a7f37; --ok-bg: #dafbe1; --bad: #b42318; --bad-bg: #ffebe9; --warn: #8a5a00; --warn-bg: #fff4d6;
+      --info: #0550ae; --info-bg: #ddf4ff; --quote-bg: #e8e0ff; --focus: #0969da;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #30363d; --panel: #161b22;
+        --ok: #56d364; --ok-bg: #12261e; --bad: #ff8182; --bad-bg: #2d1416; --warn: #e3b341; --warn-bg: #2a2110;
+        --info: #79c0ff; --info-bg: #10243a; --quote-bg: #2a2350; --focus: #58a6ff;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+    h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
+    h2 { font-size: 1.15rem; margin: 1.75rem 0 .5rem; }
+    h3 { font-size: 1rem; margin: 1.25rem 0 .35rem; }
+    p { margin: .4rem 0; }
+    .muted { color: var(--muted); }
+    .small { font-size: .875rem; }
+    details.privacy { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: .6rem .9rem; margin: .9rem 0 1.1rem; }
+    details.privacy summary { cursor: pointer; font-weight: 600; }
+    textarea { width: 100%; min-height: 220px; padding: .7rem; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
+    textarea:focus, button:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
+    .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-top: .6rem; }
+    .row .grow { flex: 1; }
+    button { font: inherit; padding: .5rem 1.1rem; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--focus); border-color: var(--focus); color: #fff; font-weight: 600; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+
+    #banner { border-radius: 8px; padding: .7rem .9rem; margin: 1rem 0; font-weight: 600; border: 1px solid; }
+    #banner.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+    #banner.bad { color: var(--bad); background: var(--bad-bg); border-color: var(--bad); }
+    #banner.warn { color: var(--warn); background: var(--warn-bg); border-color: var(--warn); }
+    #banner.info { color: var(--info); background: var(--info-bg); border-color: var(--info); }
+
+    table.score { width: 100%; border-collapse: collapse; margin: .5rem 0; }
+    table.score th, table.score td { text-align: left; padding: .5rem .55rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.score th { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+    .pill { display: inline-block; padding: .05rem .55rem; border-radius: 999px; font-size: .85rem; font-weight: 600; border: 1px solid; white-space: nowrap; }
+    .pill.ok { color: var(--ok); background: var(--ok-bg); border-color: var(--ok); }
+    .pill.bad { color: var(--bad); background: var(--bad-bg); border-color: var(--bad); }
+    .pill.na { color: var(--muted); background: var(--panel); border-color: var(--line); }
+    .tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: 0 .35rem; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); color: var(--muted); vertical-align: 1px; }
+
+    .item { border: 1px solid var(--line); border-left-width: 5px; border-radius: 6px; padding: .55rem .8rem; margin: .5rem 0; background: var(--panel); }
+    .item.bad { border-left-color: var(--bad); }
+    .item.ok { border-left-color: var(--ok); }
+    .item .lbl { font-weight: 700; }
+    .item blockquote { margin: .3rem 0; padding-left: .7rem; border-left: 3px solid var(--line); color: var(--muted); }
+    .kv { margin: .25rem 0; }
+    .kv b { display: inline-block; min-width: 9.5rem; }
+    .ifnot { font-weight: 600; }
+
+    #annotated { border: 1px solid var(--line); border-radius: 8px; padding: .9rem 1rem; background: var(--panel); line-height: 1.9; }
+    .s { padding: 0 .1rem; border-radius: 3px; }
+    .s.neg { background: var(--bad-bg); box-shadow: inset 0 -2px 0 var(--bad); }
+    .s.topic { box-shadow: inset 0 -2px 0 var(--info); }
+    .s.neg.topic { box-shadow: inset 0 -2px 0 var(--bad); }
+    mark.q { background: var(--quote-bg); color: inherit; border-radius: 3px; padding: 0 .1rem; }
+    sup.m { font-size: .68rem; font-weight: 700; margin: 0 .15rem 0 .1rem; padding: 0 .25rem; border-radius: 4px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); white-space: nowrap; }
+    sup.m.n { color: var(--bad); border-color: var(--bad); }
+    sup.m.t { color: var(--info); border-color: var(--info); }
+    .legend { font-size: .85rem; color: var(--muted); margin-top: .4rem; }
+    footer { margin-top: 2.5rem; font-size: .8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: .8rem; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Paragraph Structure Checker</h1>
+  <p class="muted">Paste <strong>one</strong> paragraph to check its basic structure before you submit it. This tool checks structure only. It does not grade your ideas, and it will not rewrite your work.</p>
+
+  <details class="privacy">
+    <summary>Privacy: what happens to your paragraph</summary>
+    <p class="small">Your paragraph is your own copyrighted work. It is sent over an encrypted connection to the university's Microsoft Azure OpenAI service to be checked, and the results are shown to you on this page. This tool does not save your paragraph, does not keep a copy, does not log it, and does not record who used it. Nothing you paste is used for research, training, or grading. Close or clear the page and it is gone. Please do not include your name or student number.</p>
+  </details>
+
+  <details class="privacy">
+    <summary>What is being checked</summary>
+    <ul class="small">
+      <li><strong>Single paragraph</strong>: the text is one paragraph (complete / incomplete).</li>
+      <li><strong>Three distinct quotations</strong>: at least three different quotations of three or more words each (complete / incomplete).</li>
+      <li><strong>Topic sentence</strong>: the first sentence is a clear, declarative statement of your main claim.</li>
+      <li><strong>Evidentiary claims</strong>: each quotation is tied to a specific claim and a named instance (a named author, text, provision, event, and so on).</li>
+      <li><strong>Analysis after each quotation</strong>: the sentence right after a quotation states, in your own words, what the quotation shows. It does not restate it, treat it as self-evident, or carry on the argument without saying what the evidence establishes.</li>
+      <li><strong>Negative framing</strong>: claims built on what something is not, lacks, or fails to do.</li>
+      <li><strong>Negative parallelism</strong>: "not X but Y" constructions. Each is reported as "If not X, then Y" so you can state Y directly.</li>
+    </ul>
+  </details>
+
+  <form id="form" novalidate>
+    <label for="text"><strong>Your paragraph</strong></label>
+    <textarea id="text" name="text" spellcheck="true" placeholder="Paste a single paragraph here…" aria-describedby="counter"></textarea>
+    <div class="row">
+      <button type="submit" class="primary" id="go">Check paragraph</button>
+      <button type="button" id="clear">Clear</button>
+      <span class="grow"></span>
+      <span id="counter" class="small muted">0 words</span>
+    </div>
+  </form>
+
+  <section id="out" aria-live="polite" tabindex="-1" hidden></section>
+
+  <footer>
+    Structure checks are automatic and can be wrong, so use them as a prompt to re-read your own paragraph. © Dan Bousfield. <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.
+  </footer>
+</main>
+
+<script>
+  // CHANGE THIS to your Cloudflare worker URL (see README).
+  const WORKER_URL = "https://paragraph-checker.YOURNAME.workers.dev/";
+  const MAX_CHARS = 6000;
+
+  const $ = (id) => document.getElementById(id);
+  const form = $("form"), ta = $("text"), out = $("out"), go = $("go");
+
+  // Small DOM helper: text is always set with textContent, never innerHTML.
+  function el(tag, attrs, ...kids) {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v === false || v == null) continue;
+      if (k === "class") n.className = v; else n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const k of kids.flat()) if (k != null && k !== false) n.append(k.nodeType ? k : document.createTextNode(String(k)));
+    return n;
+  }
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
+  const pill = (kind, text) => el("span", { class: `pill ${kind}` }, text);
+
+  ta.addEventListener("input", () => {
+    const w = (ta.value.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
+    $("counter").textContent = `${plural(w, "word")} · ${ta.value.length}/${MAX_CHARS} characters`;
+  });
+
+  $("clear").addEventListener("click", () => {
+    ta.value = ""; ta.dispatchEvent(new Event("input"));
+    out.hidden = true; out.replaceChildren(); ta.focus();
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = ta.value;
+    if (!text.trim()) return show(banner("info", "Paste your paragraph first."));
+    if (text.length > MAX_CHARS) return show(banner("bad", `That is longer than one paragraph should be (limit ${MAX_CHARS} characters).`));
+
+    go.disabled = true; go.textContent = "Checking…";
+    show(banner("info", "Checking your paragraph…"));
+    try {
+      const res = await fetch(WORKER_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+      let data = null;
+      try { data = await res.json(); } catch { /* handled below */ }
+      if (!data) throw new Error("bad response");
+      if (!data.ok) return show(banner("bad", data.error || "The check could not be completed."));
+      render(data);
+    } catch {
+      show(banner("bad", "Could not reach the checker. Check your connection and try again."));
+    } finally {
+      go.disabled = false; go.textContent = "Check paragraph";
+    }
+  });
+
+  function banner(kind, text) { const b = el("div", { id: "banner", class: kind, role: kind === "bad" ? "alert" : null }, text); return b; }
+  function show(...nodes) { out.hidden = false; out.replaceChildren(...nodes); }
+
+  // ------------------------------------------------------------------ rendering
+  function render(r) {
+    const nodes = [];
+    const negFraming = r.negatives.counts.framing, negPar = r.negatives.counts.parallelism;
+
+    // Counts of things that need attention
+    let todo = 0;
+    if (!r.paragraph.complete) todo++;
+    if (!r.quotes.complete) todo++;
+    if (r.topic.pass === false || r.topic.partialFail) todo++;
+    if (r.evidence.checked && r.evidence.failed > 0) todo++;
+    if (r.analysis.failed > 0) todo++;
+    if (negFraming > 0) todo++;
+    if (negPar > 0) todo++;
+    const notChecked = r.partial;
+
+    if (r.partial) nodes.push(banner("warn", `Partial result. ${r.partialReason} The sections marked "Not checked" could not be reviewed; everything else below is complete.`));
+    if (todo === 0 && !notChecked) nodes.push(banner("ok", "All requirements met. Every check below passed."));
+    else if (todo === 0) nodes.push(banner("info", "Nothing to fix in the sections that were checked."));
+    else nodes.push(banner("bad", `${plural(todo, "requirement")} to revisit. Details and locations are below.`));
+
+    nodes.push(el("h2", null, "Summary"));
+    nodes.push(scoreTable(r, negFraming, negPar));
+
+    nodes.push(el("h2", null, "Your paragraph, marked up"));
+    nodes.push(annotated(r));
+
+    nodes.push(el("h2", null, "Details"));
+    nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailEvidence(r), ...detailAnalysis(r), ...detailNegatives(r));
+
+    show(...nodes);
+    out.focus();
+  }
+
+  function row(name, status, count, note) {
+    return el("tr", null, el("td", null, el("strong", null, name)), el("td", null, status), el("td", null, count), el("td", { class: "small muted" }, note || ""));
+  }
+
+  function scoreTable(r, negFraming, negPar) {
+    const rows = [];
+    rows.push(row("Single paragraph", r.paragraph.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
+      `${plural(r.paragraph.found, "paragraph")} found`, "Required: 1"));
+    rows.push(row("Three distinct quotations", r.quotes.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
+      `${r.quotes.distinct} of ${r.quotes.required} distinct`, r.quotes.found !== r.quotes.distinct ? `${r.quotes.found} found, ${r.quotes.found - r.quotes.distinct} repeated` : ""));
+
+    if (r.topic.pass === null && !r.topic.partialFail) rows.push(row("Topic sentence", pill("na", "Not checked"), "—", ""));
+    else rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
+
+    if (!r.evidence.checked) rows.push(row("Evidentiary claims", pill("na", "Not checked"), "—", ""));
+    else rows.push(row("Evidentiary claims", r.evidence.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
+      `${r.evidence.failed} of ${r.evidence.total} quotations lack one`, "Each quotation needs a specific claim and a named instance"));
+
+    if (!r.analysis.checked && !r.analysis.failed) rows.push(row("Analysis after each quotation", pill("na", "Not checked"), "—", ""));
+    else rows.push(row("Analysis after each quotation", r.analysis.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
+      `${r.analysis.failed} of ${r.analysis.total} quotations lack it`, r.analysis.checked ? "The next sentence must state the quotation's value in your own words" : "Only rule-based checks ran"));
+
+    const negNote = r.negatives.checked ? "" : "Only obvious patterns could be checked";
+    rows.push(row("Negative framing", negFraming ? pill("bad", "Found") : (r.negatives.checked ? pill("ok", "None found") : pill("na", "Not checked")), plural(negFraming, "instance"), negNote));
+    rows.push(row("Negative parallelism", negPar ? pill("bad", "Found") : (r.negatives.checked ? pill("ok", "None found") : pill("na", "None found in obvious patterns")), plural(negPar, "instance"), negNote));
+
+    const t = el("table", { class: "score" },
+      el("thead", null, el("tr", null, el("th", null, "Requirement"), el("th", null, "Status"), el("th", null, "Count"), el("th", null, "Note"))),
+      el("tbody", null, rows));
+    return t;
+  }
+
+  function annotated(r) {
+    const box = el("div", { id: "annotated" });
+    r.sentences.forEach((s, i) => {
+      const cls = ["s"];
+      if (s.negatives.length) cls.push("neg");
+      if (s.isTopic) cls.push("topic");
+      const span = el("span", { class: cls.join(" ") });
+
+      // sentence text with quotations highlighted
+      let pos = 0;
+      for (const q of [...s.quotes].sort((a, b) => a.offset - b.offset)) {
+        if (q.offset < pos) continue;
+        span.append(s.text.slice(pos, q.offset));
+        span.append(el("mark", { class: "q" }, s.text.slice(q.offset, q.offset + q.length)));
+        span.append(el("sup", { class: "m", title: "Quotation " + q.id }, "Q" + q.id));
+        pos = q.offset + q.length;
+      }
+      span.append(s.text.slice(pos));
+
+      if (s.isTopic) span.append(el("sup", { class: "m t", title: "Topic sentence" }, "Topic"));
+      for (const a of s.analysisFor) span.append(el("sup", { class: "m " + (a.pass === false ? "n" : ""), title: "This sentence should explain the value of quotation " + a.quoteId }, "A" + a.quoteId));
+      for (const n of s.negatives) span.append(el("sup", { class: "m n", title: n.type === "parallelism" ? "Negative parallelism" : "Negative framing" }, (n.type === "parallelism" ? "NP" : "NF") + n.id));
+      box.append(span, i < r.sentences.length - 1 ? " " : "");
+    });
+    const legend = el("p", { class: "legend" }, "Key: ", el("mark", { class: "q" }, "Q1"), " quotation · ", el("span", { class: "m t" }, "Topic"), " topic sentence (underlined blue) · ",
+      el("span", { class: "s neg" }, "NF/NP"), " negative framing / negative parallelism (red) · ", el("span", { class: "m" }, "A1"), " sentence that should explain quotation 1 (red if it does not)");
+    return el("div", null, box, legend);
+  }
+
+  function detailParagraph(r) {
+    const n = [el("h3", null, "Single paragraph")];
+    n.push(el("div", { class: "item " + (r.paragraph.complete ? "ok" : "bad") },
+      el("span", { class: "lbl" }, r.paragraph.complete ? "Complete. " : "Incomplete. "),
+      r.paragraph.complete ? "Your text is one paragraph." : r.paragraph.note));
+    return n;
+  }
+
+  function detailQuotes(r) {
+    const q = r.quotes, n = [el("h3", null, "Three distinct quotations")];
+    n.push(el("div", { class: "item " + (q.complete ? "ok" : "bad") },
+      el("span", { class: "lbl" }, q.complete ? "Complete. " : "Incomplete. "),
+      `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} of ${q.minWords}+ words found; ${q.required} required.`));
+    for (const it of q.items) {
+      if (it.duplicateOf) n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Q${it.id} repeats Q${it.duplicateOf}. `), "It is not counted as a separate quotation.", el("blockquote", null, it.text)));
+    }
+    for (const s of q.ignoredShort) n.push(el("div", { class: "item" }, el("span", { class: "lbl" }, "Not counted: "), `“${s.text}” in sentence ${s.sentence} is shorter than ${q.minWords} words, so it reads as a term, not a quotation.`));
+    for (const w of q.warnings) n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, "Punctuation: "), w));
+    return n;
+  }
+
+  function detailTopic(r) {
+    const t = r.topic, n = [el("h3", null, "Topic sentence")];
+    n.push(el("blockquote", { class: "muted", style: "margin:.2rem 0 .4rem;padding-left:.7rem;border-left:3px solid var(--line)" }, t.text));
+    if (t.pass === null && !t.partialFail) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
+    if (!t.issues.length) { n.push(el("div", { class: "item ok" }, el("span", { class: "lbl" }, "Meets. "), "Sentence 1 is a clear, declarative statement.")); return n; }
+    t.issues.forEach((i, k) => n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Issue ${k + 1}. `), i)));
+    if (!t.checked) n.push(el("p", { class: "small muted" }, "Only rule-based checks ran, so other problems may exist."));
+    return n;
+  }
+
+  function detailEvidence(r) {
+    const e = r.evidence, n = [el("h3", null, "Evidentiary claims")];
+    if (!e.checked) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
+    if (!e.total) { n.push(el("div", { class: "item" }, "No quotations were counted, so there is nothing to assess yet.")); return n; }
+    n.push(el("p", null, `${e.failed} of ${e.total} ${e.total === 1 ? "quotation lacks" : "quotations lack"} a specific evidentiary claim tied to a named instance.`));
+    for (const it of e.items) {
+      n.push(el("div", { class: "item " + (it.pass ? "ok" : "bad") },
+        el("span", { class: "lbl" }, `Q${it.quoteId} (sentence ${it.sentence}): ${it.pass ? "specific claim found." : "no specific claim."} `),
+        it.pass ? (it.referent ? `Tied to: ${it.referent}.` : "") : it.issue,
+        el("blockquote", null, it.quote)));
+    }
+    return n;
+  }
+
+  const CAT = { nothing_follows: "Nothing follows", another_quote: "Another quotation", echoes_quote: "Reuses the quotation's wording", restates: "Restates the quotation", continues_argument: "Continues the argument", self_evident: "Assumes the quotation is self-evident", mismatch: "Does not match the quotation", unassessed: "Not assessed" };
+
+  function detailAnalysis(r) {
+    const a = r.analysis, n = [el("h3", null, "Analysis after each quotation")];
+    n.push(el("p", { class: "small muted" }, "Evidence first, then analysis. The sentence right after each quotation should say, in your own words, what the quotation shows. It should not restate the quotation, assume it speaks for itself, or move on to the next point."));
+    if (!a.total) { n.push(el("div", { class: "item" }, "No quotations were counted, so there is nothing to assess yet.")); return n; }
+    if (!a.checked && !a.failed) { n.push(el("div", { class: "item" }, "Not checked: the AI review was unavailable.")); return n; }
+    n.push(el("p", null, `${a.failed} of ${a.total} ${a.total === 1 ? "quotation lacks" : "quotations lack"} its own explanation of evidentiary value in the sentence that follows.`));
+    for (const it of a.items) {
+      if (it.pass === null) continue;
+      n.push(el("div", { class: "item " + (it.pass ? "ok" : "bad") },
+        el("span", { class: "lbl" }, `A${it.quoteId}: Q${it.quoteId} → ` + (it.nextSentence ? `sentence ${it.nextSentence}: ` : "") + (it.pass ? "explains its value." : (CAT[it.category] || "Needs revision") + ". ")),
+        it.issues.map((i) => el("div", null, i)),
+        el("blockquote", null, "Quotation: " + it.quote),
+        it.nextText ? el("blockquote", null, "Next sentence: " + it.nextText) : null));
+    }
+    return n;
+  }
+
+  function ifNot(it) {
+    if (it.x && it.y) return `If not “${it.x}”, then “${it.y}”.`;
+    if (it.x) return `If not “${it.x}”, then what? The sentence never says.`;
+    return "The sentence defines its point by denial, so the positive claim is left unstated.";
+  }
+
+  function negBlock(list, title, kind, r) {
+    const n = [el("h3", null, `${title} (${list.length})`)];
+    if (!list.length) {
+      n.push(el("div", { class: "item " + (r.negatives.checked ? "ok" : "") }, r.negatives.checked ? "None found." : "None found in the obvious patterns. The full AI review was unavailable."));
+      return n;
+    }
+    for (const it of list) {
+      n.push(el("div", { class: "item bad" },
+        el("div", null, el("span", { class: "lbl" }, `${kind}${it.id} · sentence ${it.sentence}`)),
+        el("blockquote", null, it.sentenceText),
+        it.trigger ? el("div", { class: "kv" }, el("b", null, "Signal words:"), `“${it.trigger}”`) : null,
+        el("div", { class: "kv ifnot" }, ifNot(it)),
+        it.y ? el("div", { class: "small muted" }, "State that positive claim directly instead of arriving at it through the denial.") : el("div", { class: "small muted" }, "Say what you mean directly in the positive.")));
+    }
+    return n;
+  }
+
+  function detailNegatives(r) {
+    return [
+      el("h3", null, "Negative framing and negative parallelism"),
+      el("p", { class: "small muted" }, "Negatives inside direct quotations are not counted; they belong to your source."),
+      ...negBlock(r.negatives.framing, "Negative framing", "NF", r),
+      ...negBlock(r.negatives.parallelism, "Negative parallelism", "NP", r),
+    ];
+  }
+</script>
+</body>
+</html>
