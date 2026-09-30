@@ -26,6 +26,10 @@
     p { margin: .4rem 0; }
     .muted { color: var(--muted); }
     .small { font-size: .875rem; }
+    #feedback { margin-top: 1.5rem; }
+    #feedback button { margin-right: .5rem; }
+    #feedbackStatus { display: block; margin-top: .4rem; }
+    #logStatus { margin-top: .75rem; font-size: .75rem; color: var(--muted); }
     details.privacy { border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: .6rem .9rem; margin: .9rem 0 1.1rem; }
     details.privacy summary { cursor: pointer; font-weight: 600; }
     textarea { width: 100%; min-height: 220px; padding: .7rem; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; resize: vertical; }
@@ -79,10 +83,6 @@
   <h1>Paragraph Structure Checker</h1>
   <p class="muted">Paste <strong>one</strong> paragraph to check its basic structure before you submit it. This tool checks structure only. It does not grade your ideas, and it will not rewrite your work.</p>
 
-  <details class="privacy">
-    <summary>Privacy: what happens to your paragraph</summary>
-    <p class="small">Your paragraph is your own copyrighted work. It is sent over an encrypted connection to the university's Microsoft Azure OpenAI service to be checked, and the results are shown to you on this page. This tool does not save your paragraph, does not keep a copy, does not log it, and does not record who used it. Nothing you paste is used for research, training, or grading. Close or clear the page and it is gone. Please do not include your name or student number.</p>
-  </details>
 
   <details class="privacy">
     <summary>What is being checked</summary>
@@ -136,6 +136,8 @@
   const plural = (n, one, many) => `${n} ${n === 1 ? one : many || one + "s"}`;
   const pill = (kind, text) => el("span", { class: `pill ${kind}` }, text);
 
+  let lastQuery = "", lastSummary = "";
+
   ta.addEventListener("input", () => {
     const w = (ta.value.match(/[\p{L}\p{N}][\p{L}\p{N}'’-]*/gu) || []).length;
     $("counter").textContent = `${plural(w, "word")} · ${ta.value.length}/${MAX_CHARS} characters`;
@@ -143,7 +145,7 @@
 
   $("clear").addEventListener("click", () => {
     ta.value = ""; ta.dispatchEvent(new Event("input"));
-    out.hidden = true; out.replaceChildren(); ta.focus();
+    out.hidden = true; out.replaceChildren(); lastQuery = lastSummary = ""; ta.focus();
   });
 
   form.addEventListener("submit", async (e) => {
@@ -160,6 +162,7 @@
       try { data = await res.json(); } catch { /* handled below */ }
       if (!data) throw new Error("bad response");
       if (!data.ok) return show(banner("bad", data.error || "The check could not be completed."));
+      lastQuery = text; lastSummary = data.summary || "";
       render(data);
     } catch {
       show(banner("bad", "Could not reach the checker. Check your connection and try again."));
@@ -201,8 +204,25 @@
     nodes.push(el("h2", null, "Details"));
     nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailEvidence(r), ...detailAnalysis(r), ...detailNegatives(r));
 
+    nodes.push(feedbackBlock());
+    if (r.logStatus) nodes.push(el("div", { id: "logStatus" }, `[System Log: ${r.logStatus}]`));
     show(...nodes);
     out.focus();
+  }
+
+  function feedbackBlock() {
+    const status = el("span", { id: "feedbackStatus", class: "small muted" }, "");
+    const yes = el("button", { type: "button" }, "Yes"), no = el("button", { type: "button" }, "No");
+    const send = async (value) => {
+      yes.disabled = no.disabled = true; status.textContent = "Sending…";
+      try {
+        await fetch(WORKER_URL, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ query: lastQuery, responseText: lastSummary, feedback: value }) });
+        status.textContent = "Thanks for your feedback.";
+      } catch { status.textContent = "Could not send feedback."; yes.disabled = no.disabled = false; }
+    };
+    yes.addEventListener("click", () => send("helpful"));
+    no.addEventListener("click", () => send("not_helpful"));
+    return el("div", { id: "feedback" }, el("span", null, "Was this helpful? "), yes, no, status);
   }
 
   function row(name, status, count, note) {
@@ -270,7 +290,7 @@
     const n = [el("h3", null, "Single paragraph")];
     n.push(el("div", { class: "item " + (r.paragraph.complete ? "ok" : "bad") },
       el("span", { class: "lbl" }, r.paragraph.complete ? "Complete. " : "Incomplete. "),
-      r.paragraph.complete ? "Your text is one paragraph." : r.paragraph.note));
+      r.paragraph.complete ? "Your text is one paragraph." + (r.paragraph.note ? " " + r.paragraph.note : "") : r.paragraph.note));
     return n;
   }
 
