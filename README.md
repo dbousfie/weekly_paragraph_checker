@@ -2,7 +2,7 @@
 
 A student-facing web page that checks whether a single pasted paragraph meets basic structural requirements. Built from the Syllabus Bot (Azure) template: the page lives on GitHub Pages, a small Cloudflare Worker does the checking, and the language-judgement step runs on your institution's Azure OpenAI deployment.
 
-**Privacy change from the template:** student writing is copyright-protected, so this version has **no Qualtrics logging, no research consent letter, and no stored text of any kind.** The paragraph goes to the worker, on to Azure OpenAI for judgement, and the report comes back. Nothing is written down.
+**Logging works as in the syllabus bot:** every submission is logged to your Western Qualtrics survey (`queryText` = the pasted paragraph, `responseText` = a text summary of the report), and each thumbs up/down click logs a second row with `feedback` = `helpful` or `not_helpful`. The page carries no consent letter or notice.
 
 ## What it checks
 
@@ -28,10 +28,11 @@ Negatives inside direct quotations are ignored, since they belong to the source.
 
 1. **Create the repo** from this template on GitHub (name it e.g. `paragraph-checker-azure`).
 2. **Deploy the worker:** dash.cloudflare.com → Compute (Workers) → Create → Hello World → name it → Edit code → select all, delete, paste `worker.js` → Deploy. Visiting the worker URL should show "Method Not Allowed".
-3. **Set variables** (Settings → Variables and Secrets): see `env-vars-checklist.txt`. Required: `AZURE_OPENAI_KEY` (Secret), `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT_NAME`. Recommended: `ALLOWED_ORIGIN` = `https://<username>.github.io` so only your page can use the worker. Optional: `AZURE_API_VERSION`.
-4. **Point the page at the worker:** in `index.html` set `WORKER_URL`, commit.
-5. **Publish:** repo → Settings → Pages → branch `main`, folder `/ (root)`.
-6. **Brightspace:** put your Pages URL in the iframe `src` of `brightspace.html`, and paste that in as a content item.
+3. **Set variables** (Settings → Variables and Secrets), then click **Deploy**: see `env-vars-checklist.txt`. Required: `AZURE_OPENAI_KEY` (Secret), `AZURE_ENDPOINT`, `AZURE_DEPLOYMENT_NAME`. For logging: `QUALTRICS_API_TOKEN` (Secret), `QUALTRICS_SURVEY_ID`, `QUALTRICS_DATACENTER`. Optional: `AZURE_API_VERSION` (defaults to `2024-04-01-preview`, same as the template) and `ALLOWED_ORIGIN` = `https://<username>.github.io` so only your page can use the worker. If a variable is missing, the page's partial-result banner names it.
+4. **Qualtrics survey** needs three embedded data fields: `queryText`, `responseText`, `feedback`. Filter `feedback = not_helpful` to find checks students flagged.
+5. **Point the page at the worker:** in `index.html` set `WORKER_URL`, commit.
+6. **Publish:** repo → Settings → Pages → branch `main`, folder `/ (root)`.
+7. **Brightspace:** put your Pages URL in the iframe `src` of `brightspace.html`, and paste that in as a content item.
 
 ## Tuning the rules
 
@@ -43,7 +44,7 @@ Constants at the top of `worker.js` (redeploy after editing):
 
 ## Testing
 
-`npm test` (Node 18+) runs 21 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
+`npm test` (Node 18+) runs 27 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
 
 ## Known limits
 
@@ -54,14 +55,14 @@ Constants at the top of `worker.js` (redeploy after editing):
 - The AI-judged parts (topic sentence clarity, evidentiary claims, negative framing) are judgements, not proofs; the page tells students to treat them as a prompt to re-read. Spot-check with real student paragraphs before relying on it.
 - A model can miss or over-flag negatives. The code patterns are a floor for parallelism, not a ceiling.
 
-## Data handling — confirm with your privacy office / IT
+## Data handling
 
-Where the text travels: student browser → **Cloudflare Worker** (relay, in transit only, never stored or logged by this code) → **your Azure OpenAI resource** → back. Two things worth confirming for a copyrighted-student-work policy:
+Where the text travels: student browser → **Cloudflare Worker** (relay; the code does not store it) → **your Azure OpenAI resource** → back, plus one row to your **Western Qualtrics** survey. Two things worth confirming with your privacy office / IT:
 
-1. **Cloudflare is a third-party processor in the middle.** If policy requires the text to stay wholly inside Microsoft, the worker logic (a single `fetch` handler) can be moved to an Azure Function / Static Web Apps API with little change.
+1. **Cloudflare is a third party in the middle** of that path, in transit only. If policy requires the text to stay wholly inside Microsoft, the worker logic (a single `fetch` handler) can be moved to an Azure Function / Static Web Apps API with little change.
 2. **Azure OpenAI abuse monitoring** may retain prompts for a limited period by default unless your tenant has an approved exemption. Check your resource's data-retention settings.
 
-The GitHub repo and Pages site contain only code, never student data. Do not enable Cloudflare Workers Logs / Logpush for this worker, since those could capture request content.
+Do not enable Cloudflare Workers Logs / Logpush for this worker, since those could capture request content. The GitHub repo and Pages site contain only code, never student data.
 
 ## Files
 

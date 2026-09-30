@@ -3,19 +3,30 @@ Cloudflare Worker Env Vars — Paragraph Checker (Azure variant)
 
 Where: dash.cloudflare.com -> your worker -> Settings -> Variables and Secrets
 Tip:   Click "Edit" (next to "+ Add") to set multiple at once.
+After adding or changing variables, click Deploy for them to take effect.
 
 Name                    Type      Notes
 ----------------------  --------  ------------------------------------------------
 AZURE_OPENAI_KEY        Secret    Azure portal -> your resource -> Keys and Endpoint
-AZURE_ENDPOINT          Text      https://<your-resource>.openai.azure.com
-AZURE_DEPLOYMENT_NAME   Text      e.g. gpt-4.1-mini (deployment name in Azure Studio)
-AZURE_API_VERSION       Text      optional, defaults to 2024-10-21
-ALLOWED_ORIGIN          Text      recommended: https://<your-github-username>.github.io
+AZURE_ENDPOINT          Text      https://chatbot-api-western.openai.azure.com
+AZURE_DEPLOYMENT_NAME   Text      gpt-4.1-mini  (deployment name in Azure Studio)  <- REQUIRED
+AZURE_API_VERSION       Text      2024-04-01-preview  (optional, defaults to this)
+QUALTRICS_API_TOKEN     Secret    from Qualtrics -> Account Settings -> API
+QUALTRICS_SURVEY_ID     Text      SV_... (from the survey URL)
+QUALTRICS_DATACENTER    Text      uwo.eu
+ALLOWED_ORIGIN          Text      optional: https://<your-github-username>.github.io
                                   (comma-separate several; unset = any site can call it)
 
-NOT used any more (removed on purpose, student text is never logged):
-  QUALTRICS_*, SYLLABUS_URL, COURSE_PAGE_URL
+Not used by this bot: SYLLABUS_URL, COURSE_PAGE_URL
 
-After deploying:
-  1. Set WORKER_URL near the top of the <script> in index.html.
-  2. Set the iframe src in brightspace.html to your GitHub Pages URL.
+Reminder for index.html:
+  Set WORKER_URL near the top of the script to https://<this-bot-name>.danbousfield.workers.dev/
+
+Reminder for Qualtrics:
+  Survey must have three embedded data fields:
+    queryText   (the pasted paragraph)
+    responseText (text summary of the checker's report)
+    feedback    (empty on the first row; helpful / not_helpful on the thumbs row)
+
+Reminder for brightspace.html:
+  Set the iframe src to this repo's GitHub Pages URL.

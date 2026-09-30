@@ -2,9 +2,10 @@
 //
 // Receives ONE student paragraph from index.html, checks it, and returns a JSON report.
 //
-// PRIVACY: student writing is copyright-protected. This worker does not store, log,
-// or forward the text anywhere except to your Azure OpenAI deployment for the
-// judgement steps. There is no Qualtrics logging. Never add logging of the text.
+// LOGGING: exactly as in the syllabus bot, each submission is logged to your institution's
+// Qualtrics survey (queryText = the pasted paragraph, responseText = a text summary of the
+// report), and each thumbs up/down click logs a second row with a feedback value. Nothing else
+// stores the text. Do not enable Cloudflare Workers Logs / Logpush for this worker.
 //
 // Two kinds of checks:
 //   1. DETERMINISTIC (plain code, same answer every time):
@@ -19,11 +20,16 @@
 //      If Azure is unreachable or its content filter refuses the text, the deterministic
 //      results are still returned and the judgement sections are marked "not checked".
 //
+// Qualtrics survey needs three embedded data fields: queryText, responseText, feedback
+//
 // Environment variables (Cloudflare → Settings → Variables and Secrets):
 //   AZURE_OPENAI_KEY       (Secret) required
 //   AZURE_ENDPOINT         (Text)   required, e.g. https://your-resource.openai.azure.com
 //   AZURE_DEPLOYMENT_NAME  (Text)   required, e.g. gpt-4.1-mini
-//   AZURE_API_VERSION      (Text)   optional, default 2024-10-21
+//   AZURE_API_VERSION      (Text)   optional, default 2024-04-01-preview
+//   QUALTRICS_API_TOKEN    (Secret) optional, needed for logging
+//   QUALTRICS_SURVEY_ID    (Text)   optional, needed for logging (starts with SV_)
+//   QUALTRICS_DATACENTER   (Text)   optional, e.g. uwo.eu
 //   ALLOWED_ORIGIN         (Text)   optional but recommended, e.g. https://YOURNAME.github.io
 //                                   (comma-separate several). Unset = any site may call the worker.
 
@@ -33,6 +39,38 @@ const MIN_QUOTE_WORDS = 3;   // shorter quoted strings are treated as scare quot
 const MAX_CHARS = 6000;      // input cap (~900 words)
 const MIN_WORDS = 8;         // below this there is nothing meaningful to check
 const AZURE_TIMEOUT_MS = 30000;
+
+// ---- Qualtrics logging (same fields and behaviour as the syllabus bot) ----------
+async function logToQualtrics(env, values) {
+  if (!env.QUALTRICS_API_TOKEN || !env.QUALTRICS_SURVEY_ID || !env.QUALTRICS_DATACENTER) return "Qualtrics not called (Check Env Vars)";
+  try {
+    const qt = await fetch(`https://${env.QUALTRICS_DATACENTER}.qualtrics.com/API/v3/surveys/${env.QUALTRICS_SURVEY_ID}/responses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-API-TOKEN": env.QUALTRICS_API_TOKEN },
+      body: JSON.stringify({ values }),
+    });
+    return `Qualtrics status: ${qt.status}`;
+  } catch (e) {
+    console.error("Qualtrics connection failed");
+    return "Qualtrics connection failed";
+  }
+}
+
+// Plain-text version of the report, stored as responseText (and echoed back with feedback).
+function summarise(r) {
+  const L = [];
+  L.push(`Paragraphs: ${r.paragraph.found} (${r.paragraph.complete ? "complete" : "incomplete"})`);
+  L.push(`Quotations: ${r.quotes.distinct} of ${r.quotes.required} distinct (${r.quotes.complete ? "complete" : "incomplete"})`);
+  L.push(`Topic sentence: ${!r.topic.checked && !r.topic.partialFail ? "not checked" : r.topic.issues.length ? "needs revision: " + r.topic.issues.join(" | ") : "meets"}`);
+  L.push(`Evidentiary claims: ${r.evidence.checked ? `${r.evidence.failed} of ${r.evidence.total} lack one` : "not checked"}`);
+  for (const i of r.evidence.items.filter((x) => !x.pass)) L.push(`  Q${i.quoteId}: ${i.issue}`);
+  L.push(`Analysis after quotation: ${r.analysis.checked || r.analysis.failed ? `${r.analysis.failed} of ${r.analysis.total} lack it` : "not checked"}`);
+  for (const i of r.analysis.items.filter((x) => x.pass === false)) L.push(`  Q${i.quoteId}: ${i.category}: ${i.issues.join(" ")}`);
+  L.push(`Negative framing: ${r.negatives.counts.framing}; negative parallelism: ${r.negatives.counts.parallelism}${r.negatives.checked ? "" : " (patterns only)"}`);
+  for (const n of [...r.negatives.framing, ...r.negatives.parallelism]) L.push(`  ${n.type === "framing" ? "NF" : "NP"}${n.id} s${n.sentence}: ${n.x || "?"} -> ${n.y || "?"}`);
+  if (r.partial) L.push(`PARTIAL RESULT: ${r.partialReason}`);
+  return L.join("\n").slice(0, 6000);
+}
 
 // ---- HTTP plumbing -------------------------------------------------------------
 function corsFor(req, env) {
@@ -67,6 +105,16 @@ export default {
     let body;
     try { body = await req.json(); } catch { return json({ ok: false, error: "Invalid request." }, 400, cors); }
 
+    // Feedback path (thumbs up/down): log and return, no analysis.
+    if (body.feedback) {
+      const status = await logToQualtrics(env, {
+        queryText: typeof body.query === "string" ? body.query.slice(0, MAX_CHARS) : "",
+        responseText: typeof body.responseText === "string" ? body.responseText.slice(0, 6000) : "",
+        feedback: String(body.feedback).slice(0, 40),
+      });
+      return json({ ok: true, feedback: true, logStatus: status }, 200, cors);
+    }
+
     const raw = typeof body.text === "string" ? body.text : "";
     if (!raw.trim()) return json({ ok: false, error: "Paste your paragraph first." }, 400, cors);
     if (raw.length > MAX_CHARS) {
@@ -80,7 +128,10 @@ export default {
 
     // Judgement step (Azure). Failure here must not lose the deterministic results.
     const judged = await judgeWithAzure(base, env);
-    return json(buildReport(base, judged), 200, cors);
+    const report = buildReport(base, judged);
+    report.summary = summarise(report);
+    report.logStatus = await logToQualtrics(env, { queryText: raw, responseText: report.summary, feedback: "" });
+    return json(report, 200, cors);
   },
 };
 
@@ -177,8 +228,22 @@ function sharedRun(a, b) {
 // ---- Deterministic analysis ---------------------------------------------------
 function analyseDeterministic(raw) {
   const text = raw.replace(/\r\n?/g, "\n");
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const flat = lines.join(" ").replace(/[ \t]+/g, " ");
+  // Paragraph breaks: a blank line always separates paragraphs. A single line break is
+  // treated as line WRAPPING (PDF, email, Word "hard returns") and joined with a space,
+  // unless the line before it is long (200+ characters) and ends a sentence, which is what
+  // a real paragraph pasted with single returns looks like.
+  const paras = [];
+  let wrappedBreaks = 0;
+  for (const block of text.split(/\n[ \t]*\n+/).map((b) => b.trim()).filter(Boolean)) {
+    const lines = block.split("\n").map((l) => l.trim()).filter(Boolean);
+    let cur = lines[0];
+    for (let i = 1; i < lines.length; i++) {
+      if (/[.!?]["”’')\]]*$/.test(lines[i - 1]) && lines[i - 1].length >= 200) { paras.push(cur); cur = lines[i]; }
+      else { cur += " " + lines[i]; wrappedBreaks++; }
+    }
+    paras.push(cur);
+  }
+  const flat = paras.join(" ").replace(/[ \t]+/g, " ");
 
   const { spans, warnings: quoteWarnings } = findQuoteSpans(flat);
   const sentences = splitSentences(flat, spans);
@@ -249,7 +314,8 @@ function analyseDeterministic(raw) {
 
   return {
     stats: { words: words(flat).length, sentences: sentences.length },
-    paragraphCount: lines.length,
+    paragraphCount: paras.length,
+    wrappedBreaks,
     flat, sentences, quotes, ignoredShort, quoteWarnings, distinct,
     topicIssues, patternHits, negHints,
   };
@@ -334,14 +400,15 @@ RULES
    - Sentence numbers are hints only where "negation_words_in_sentences" lists them; you may flag any numbered sentence, and you may omit listed ones.`;
 
 async function judgeWithAzure(base, env) {
-  if (!env.AZURE_OPENAI_KEY || !env.AZURE_ENDPOINT || !env.AZURE_DEPLOYMENT_NAME) return { ok: false, reason: "not_configured" };
+  const missing = ["AZURE_OPENAI_KEY", "AZURE_ENDPOINT", "AZURE_DEPLOYMENT_NAME"].filter((k) => !env[k]);
+  if (missing.length) return { ok: false, reason: "not_configured", missing }; // names only, never values
 
   const payload = {
     sentences: base.sentences.map((s) => ({ n: s.index, text: s.text })),
     quotations: base.quotes.map((q) => ({ quote_id: q.id, in_sentence: q.sentence, next_sentence: q.next, text: q.text })),
     negation_words_in_sentences: base.negHints,
   };
-  const url = `${env.AZURE_ENDPOINT.replace(/\/+$/, "")}/openai/deployments/${env.AZURE_DEPLOYMENT_NAME}/chat/completions?api-version=${env.AZURE_API_VERSION || "2024-10-21"}`;
+  const url = `${env.AZURE_ENDPOINT.replace(/\/+$/, "")}/openai/deployments/${env.AZURE_DEPLOYMENT_NAME}/chat/completions?api-version=${env.AZURE_API_VERSION || "2024-04-01-preview"}`;
 
   const call = async (withJsonMode) => {
     const ctl = new AbortController();
@@ -411,8 +478,12 @@ function buildReport(base, judged) {
     complete: base.paragraphCount === 1,
     found: base.paragraphCount,
     required: 1,
-    note: base.paragraphCount === 1 ? null
-      : `Your text has ${base.paragraphCount} separate blocks (line breaks). If you copied from a PDF, stray line breaks can cause this; otherwise merge them into one paragraph.`,
+    wrapped: base.wrappedBreaks,
+    note: base.paragraphCount > 1
+      ? `Your text has ${base.paragraphCount} separate paragraphs (separated by blank lines or by a line break after a long, finished line). Merge them into one paragraph.`
+      : base.wrappedBreaks > 0
+        ? `Your text contains ${base.wrappedBreaks} line breaks inside it. They were treated as line wrapping (for example from a PDF), not as new paragraphs.`
+        : null,
   };
 
   // --- Quotes (soft: complete / incomplete)
@@ -539,7 +610,9 @@ function buildReport(base, judged) {
   return {
     ok: true,
     partial: !judged.ok,
-    partialReason: judged.ok ? null : REASONS[judged.reason] || REASONS.unavailable,
+    partialReason: judged.ok ? null
+      : judged.reason === "not_configured" ? `The AI service is not set up on the server (missing: ${judged.missing.join(", ")}). Please tell your instructor.`
+      : REASONS[judged.reason] || REASONS.unavailable,
     stats: base.stats,
     paragraph,
     quotes,
