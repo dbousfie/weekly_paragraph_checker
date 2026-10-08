@@ -89,9 +89,8 @@
     <ul class="small">
       <li><strong>Single paragraph</strong>: the text is one paragraph (complete / incomplete).</li>
       <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). Quotations are identified by the AI, so a missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it. A paraphrase (a source's ideas in your own words) is not a quotation, even with a citation.</li>
-      <li><strong>Quotation strength</strong>: each quotation is rated Strong, Moderate or Weak on whether the quoted words stand on their own as evidence (a specific claim, fact, finding or named instance) or are just the author's opinion or a few words.</li>
+      <li><strong>Evidentiary claim</strong>: each quotation is rated Strong, Moderate or Weak on whether the quoted words themselves stand on their own as evidence: a specific claim built on a direct noun or named instance (a named policy, law, event, organisation, place, date or figure). Naming the author does not count.</li>
       <li><strong>Topic sentence</strong>: the first sentence is a clear, declarative statement of your main claim.</li>
-      <li><strong>Evidentiary claims</strong>: each quotation is tied to a specific claim and a named instance (a named author, text, provision, event, and so on).</li>
       <li><strong>Analysis after each quotation</strong>: the sentence right after a quotation states, in your own words, what the quotation shows. It does not restate it, treat it as self-evident, or carry on the argument without saying what the evidence establishes.</li>
       <li><strong>Negative framing</strong>: claims built on what something is not, lacks, or fails to do.</li>
       <li><strong>Negative parallelism</strong>: "not X but Y" constructions. Each is reported as "If not X, then Y" so you can state Y directly.</li>
@@ -185,7 +184,6 @@
     if (!r.paragraph.complete) todo++;
     if (!r.quotes.complete) todo++;
     if (r.topic.pass === false) todo++;
-    if (r.evidence.failed > 0) todo++;
     if (r.quotes.strength.weak > 0) todo++;
     if (r.analysis.failed > 0) todo++;
     if (negFraming > 0) todo++;
@@ -200,7 +198,7 @@
     nodes.push(annotated(r));
 
     nodes.push(el("h2", null, "Details"));
-    nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailEvidence(r), ...detailAnalysis(r), ...detailNegatives(r));
+    nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailAnalysis(r), ...detailNegatives(r));
 
     nodes.push(feedbackBlock());
     if (r.logStatus) nodes.push(el("div", { id: "logStatus" }, `[System Log: ${r.logStatus}]`));
@@ -234,15 +232,12 @@
     rows.push(row("Three distinct quotations", r.quotes.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
       `${r.quotes.distinct} of ${r.quotes.required} distinct`, r.quotes.found !== r.quotes.distinct ? `${r.quotes.found} found, ${r.quotes.found - r.quotes.distinct} repeated` : ""));
     const st = r.quotes.strength;
-    if (!r.quotes.distinct) rows.push(row("Quotation strength", pill("na", "Not assessed"), "—", "No quotations found"));
-    else rows.push(row("Quotation strength", st.weak ? pill("bad", "Needs revision") : pill("ok", "Meets"),
+    if (!r.quotes.distinct) rows.push(row("Evidentiary claim", pill("na", "Not assessed"), "—", "No quotations found"));
+    else rows.push(row("Evidentiary claim", st.weak ? pill("bad", "Needs revision") : pill("ok", "Meets"),
       `${st.strong} strong · ${st.moderate} moderate · ${st.weak} weak` + (st.unrated ? ` · ${st.unrated} not rated` : ""), st.weak ? "Weak quotations need more ability to stand on their own" : ""));
 
     rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
 
-    if (!r.evidence.total) rows.push(row("Evidentiary claims", pill("na", "Not assessed"), "—", "No quotations found"));
-    else rows.push(row("Evidentiary claims", r.evidence.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
-      `${r.evidence.failed} of ${r.evidence.total} quotations lack one`, "Each quotation needs a specific claim and a named instance"));
 
     if (!r.analysis.total) rows.push(row("Analysis after each quotation", pill("na", "Not assessed"), "—", "No quotations found"));
     else rows.push(row("Analysis after each quotation", r.analysis.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
@@ -296,13 +291,13 @@
 
   const STRENGTH = {
     strong: { label: "Strong", text: "Stands on its own as evidence." },
-    moderate: { label: "Moderate", text: "Partly stands on its own; mostly the author's opinion." },
+    moderate: { label: "Moderate", text: "Partly stands on its own: a general claim or the author's opinion, with no named instance." },
     weak: { label: "Weak", text: "Needs more ability to stand on its own." },
-    none: { label: "Not rated", text: "The strength of this quotation could not be rated. Try the check again." },
+    none: { label: "Not rated", text: "This quotation could not be rated. Try the check again." },
   };
 
   function detailQuotes(r) {
-    const q = r.quotes, n = [el("h3", null, "Three distinct quotations and their strength")];
+    const q = r.quotes, n = [el("h3", null, "Quotations and evidentiary claim")];
     n.push(el("div", { class: "item " + (q.complete ? "ok" : "bad") },
       el("span", { class: "lbl" }, q.complete ? "Complete. " : "Incomplete. "),
       `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} found; ${q.required} required.`));
@@ -330,18 +325,7 @@
     return n;
   }
 
-  function detailEvidence(r) {
-    const e = r.evidence, n = [el("h3", null, "Evidentiary claims")];
-    if (!e.total) { n.push(el("div", { class: "item" }, "Not assessed: no quotations were found.")); return n; }
-    n.push(el("p", null, `${e.failed} of ${e.total} ${e.total === 1 ? "quotation lacks" : "quotations lack"} a specific evidentiary claim tied to a named instance.`));
-    for (const it of e.items) {
-      n.push(el("div", { class: "item " + (it.pass ? "ok" : "bad") },
-        el("span", { class: "lbl" }, `Q${it.quoteId} (sentence ${it.sentence}): ${it.pass ? "specific claim found." : "no specific claim."} `),
-        it.pass ? (it.referent ? `Tied to: ${it.referent}.` : "") : it.issue,
-        el("blockquote", null, it.quote)));
-    }
-    return n;
-  }
+
 
   const CAT = { nothing_follows: "Nothing follows", another_quote: "Another quotation", echoes_quote: "Reuses the quotation's wording", restates: "Restates the quotation", continues_argument: "Continues the argument", self_evident: "Assumes the quotation is self-evident", mismatch: "Does not match the quotation", unassessed: "Not assessed" };
 

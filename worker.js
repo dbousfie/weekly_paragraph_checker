@@ -11,7 +11,7 @@
 //   1. Code splits the paragraph into numbered sentences and counts paragraphs.
 //   2. Azure OpenAI (one call, temperature 0, JSON) finds the quotations the way a marker
 //      would (missing or mismatched quotation marks and quotes-within-quotes still count),
-//      and judges the topic sentence, evidentiary claims, analysis after each quotation,
+//      rates each quotation's evidentiary claim, and judges the topic sentence, analysis after each quotation,
 //      and negative framing / negative parallelism.
 //   3. Code verifies every quotation the AI reports really appears in the paragraph (so it
 //      cannot invent one), locates it, notes missing quotation marks, removes repeats, and
@@ -60,11 +60,9 @@ function summarise(r) {
   L.push(`Paragraphs: ${r.paragraph.found} (${r.paragraph.complete ? "complete" : "incomplete"})`);
   L.push(`Quotations: ${r.quotes.distinct} of ${r.quotes.required} distinct (${r.quotes.complete ? "complete" : "incomplete"})`);
   const st = r.quotes.strength;
-  L.push(`Quotation strength: ${r.quotes.distinct ? `${st.strong} strong, ${st.moderate} moderate, ${st.weak} weak${st.unrated ? `, ${st.unrated} not rated` : ""}` : "not assessed (no quotations)"}`);
+  L.push(`Evidentiary claim: ${r.quotes.distinct ? `${st.strong} strong, ${st.moderate} moderate, ${st.weak} weak${st.unrated ? `, ${st.unrated} not rated` : ""}` : "not assessed (no quotations)"}`);
   for (const q of r.quotes.items.filter((x) => !x.duplicateOf && x.strength !== "strong")) L.push(`  Q${q.id}: ${q.strength || "not rated"}${q.strengthReason ? ": " + q.strengthReason : ""}`);
   L.push(`Topic sentence: ${r.topic.issues.length ? "needs revision: " + r.topic.issues.join(" | ") : "meets"}`);
-  L.push(`Evidentiary claims: ${r.evidence.total ? `${r.evidence.failed} of ${r.evidence.total} lack one` : "not assessed (no quotations)"}`);
-  for (const i of r.evidence.items.filter((x) => !x.pass)) L.push(`  Q${i.quoteId}: ${i.issue}`);
   L.push(`Analysis after quotation: ${r.analysis.total ? `${r.analysis.failed} of ${r.analysis.total} lack it` : "not assessed (no quotations)"}`);
   for (const i of r.analysis.items.filter((x) => x.pass === false)) L.push(`  Q${i.quoteId}: ${i.category}: ${i.issues.join(" ")}`);
   L.push(`Negative framing: ${r.negatives.counts.framing}; negative parallelism: ${r.negatives.counts.parallelism}`);
@@ -394,7 +392,6 @@ Return ONLY a JSON object of this exact shape:
 {
   "quotations": [ { "quote_id": number, "sentence": number, "text": "the quoted words copied EXACTLY from the paragraph, without quotation marks or citation", "strength": "strong"|"moderate"|"weak", "strength_reason": "one short sentence about THIS quotation" } ],
   "topic_sentence": { "declarative": true|false, "clear": true|false, "issues": ["short plain-language problem", ...] },
-  "evidence": [ { "quote_id": number, "specific_claim": true|false, "named_referent": "the person/text/provision/event/etc. the claim is tied to, or null", "issue": "what is missing, or null" } ],
   "analysis": [ { "quote_id": number, "explains_value": true|false, "category": "explains"|"restates"|"continues_argument"|"self_evident"|"mismatch", "issue": "one short sentence, or null" } ],
   "negatives": [ { "sentence": number, "type": "framing"|"parallelism", "trigger": "exact words from the sentence that signal the negative", "x": "what is being denied", "y": "what is asserted or implied instead" } ]
 }
@@ -402,10 +399,10 @@ Return ONLY a JSON object of this exact shape:
 RULES
 
 0. QUOTATIONS. Read the paragraph as an instructor would and list every direct quotation: words taken from a source and presented as that source's words (students use modified Harvard in-text citations such as "(Houghton 2024: 346)"). Students make punctuation mistakes, so still count a quotation when its opening or closing quotation mark is missing, when curly and straight marks are mixed, or when marks are misplaced; a citation right after the words, or a lead-in such as "X argues that", is strong evidence of a quotation. A quotation that contains a shorter quotation inside it (e.g. 'black mirror' inside a longer quote) is ONE quotation. Count a passage only if it is presented as a source's own words (a citation, or an attribution to the source). Words in quotation marks that are the student's own term, a title, or a scare quote with no source attached are NOT quotations. A paraphrase (the source's ideas in the student's own words, with no quoted words) is NEVER a quotation, even when it has a citation. Number quotations 1, 2, 3... in order of appearance. Copy "text" word for word from the paragraph (do not correct spelling or fill in words); leave out the quotation marks and the citation. List each passage once even if it is quoted twice.
-   For EVERY quotation, rate its evidentiary value as "strength", judging the quoted words themselves:
-   - "strong": the quoted words stand on their own as evidence. They contain a specific claim, fact, finding, figure, or named instance that would support a point even if read alone.
-   - "moderate": the quoted words carry some substance but rely mainly on the author's opinion, judgement, or general wording.
-   - "weak": just some words from the author: a term, short phrase, fragment, or bare opinion that does not work as evidence by itself.
+   For EVERY quotation, rate its EVIDENTIARY CLAIM as "strength", judging ONLY the quoted words themselves. Who is quoted, the citation, and the student's surrounding sentences do NOT change the rating (naming the author is not an evidentiary claim):
+   - "strong": the quoted words stand on their own as evidence. They make a specific claim built on a direct noun or named instance (a named policy, law, program, agreement, event, organisation, place, date, figure, or finding) that would support a point even if read alone.
+   - "moderate": the quoted words make a claim, but a general one or mainly the author's opinion or judgement, with no named instance.
+   - "weak": just some words from the author: a term, short phrase, fragment, question, or bare opinion with no specific claim.
    Give "strength_reason": one short sentence about this specific quotation explaining the rating. Do not suggest a different quotation or rewrite anything.
 
 1. TOPIC SENTENCE. Judge sentence 1 only.
@@ -413,16 +410,14 @@ RULES
    - clear = it states one identifiable main claim that the rest of the paragraph could support. Not clear if vague ("There are many factors"), stacked with several unrelated ideas, so hedged it asserts nothing, or so tangled the point cannot be found.
    - List each problem in "issues"; use an empty list if it is both declarative and clear.
 
-2. EVIDENTIARY CLAIM (one entry for EVERY quotation you listed, by quote_id). A quotation has a specific evidentiary claim when the quote's own sentence or the sentence immediately before or after it says exactly what the quote shows or establishes AND ties it to a concrete, named referent — a direct noun or named instance such as a named author, text, document, provision, institution, case, event, or dataset ("Article 5 commits members to...", "Fanon argues that..."). specific_claim is false when the quote is simply dropped in with no explanation, when attribution or claim is generic ("the author says", "the text", "this shows", "some scholars", "it"), or when the comment on it is vague ("this is important", "this proves the point"). If false, "issue" must say which of these is the problem, in one short sentence.
-
-3. ANALYSIS AFTER EACH QUOTATION (one entry for EVERY quotation you listed that is not in the last sentence). Look ONLY at the sentence numbered one more than the quotation's sentence, i.e. the sentence immediately after it. This is a simple correspondence check: evidence first, then analysis. explains_value is true only if that one sentence, standing on its own and in the student's own words, states what the quotation demonstrates or establishes (its evidentiary value) AND that statement corresponds to what the quotation actually says. Otherwise false, with the category:
+2. ANALYSIS AFTER EACH QUOTATION (one entry for EVERY quotation you listed that is not in the last sentence). Look ONLY at the sentence numbered one more than the quotation's sentence, i.e. the sentence immediately after it. This is a simple correspondence check: evidence first, then analysis. explains_value is true only if that one sentence, standing on its own and in the student's own words, states what the quotation demonstrates or establishes (its evidentiary value) AND that statement corresponds to what the quotation actually says. Otherwise false, with the category:
    - "restates": it paraphrases or repeats what the quotation says without saying what it proves or shows.
    - "continues_argument": it moves on to the next point or keeps building the argument as though the quotation had already proved something, so the value of the evidence is never stated.
    - "self_evident": it treats the quotation as obviously making the point ("This clearly shows it", "This is significant", "This proves the point", "As we can see") without saying what the point is.
    - "mismatch": it claims the quotation shows something the quotation does not actually say or support.
    The value must be stated in this sentence; do not give credit for value that is only implied or that appears in other sentences. Do not rewrite the sentence or suggest wording.
 
-4. NEGATIVE FRAMING AND NEGATIVE PARALLELISM (student's own words only). Ignore negatives that occur wholly inside quotations; they belong to the source.
+3. NEGATIVE FRAMING AND NEGATIVE PARALLELISM (student's own words only). Ignore negatives that occur wholly inside quotations; they belong to the source.
    - type "parallelism": the sentence sets up a contrast by denying one thing and asserting another: "not X but Y", "not only X but also Y", "isn't X, it's Y", "less X than Y", "rather than", "instead of", "neither X nor Y", "more than just X".
    - type "framing": a claim, definition, or evaluation is expressed mainly by what something is NOT, lacks, fails to do, or never does ("This does not show...", "The policy fails to protect...", "There is no evidence of...", "without any").
    - For each instance give x = the thing denied/lacking (a short phrase from the sentence) and y = the positive claim that is stated, or that the sentence implies instead (short, using the student's own terms; if truly nothing is implied use null).
@@ -561,24 +556,6 @@ function buildReport(base, judged) {
   }
   const topic = { sentence: 1, text: base.sentences[0].text, pass: topicIssues.length === 0, issues: topicIssues };
 
-  // --- Evidentiary claims (severe)
-  const llmEv = Array.isArray(llm.evidence) ? llm.evidence : [];
-  const evidence = { items: [], failed: 0, total: counted.length };
-  {
-    for (const q of counted) {
-      const e = llmEv.find((x) => x && idFor(x.quote_id) === q.id);
-      let pass = false, issue = null, referent = null;
-      if (!e) issue = "This quotation could not be assessed. Try the check again.";
-      else {
-        pass = e.specific_claim === true;
-        referent = pass && typeof e.named_referent === "string" ? clip(e.named_referent, 100) : null;
-        issue = pass ? null : clip(typeof e.issue === "string" && e.issue.trim() ? e.issue : "No specific claim about what this quotation shows is tied to a named source or instance.", 240);
-      }
-      if (!pass) evidence.failed++;
-      evidence.items.push({ quoteId: q.id, quote: q.text, sentence: q.sentence, pass, referent, issue });
-    }
-  }
-
   // --- Analysis after each quotation (severe)
   const llmAn = Array.isArray(llm.analysis) ? llm.analysis : [];
   const analysis = { items: [], failed: 0, total: counted.length };
@@ -655,7 +632,6 @@ function buildReport(base, judged) {
     paragraph,
     quotes,
     topic,
-    evidence,
     analysis,
     negatives: { framing, parallelism, counts: { framing: framing.length, parallelism: parallelism.length } },
     sentences,
