@@ -59,6 +59,9 @@ function summarise(r) {
   const L = [];
   L.push(`Paragraphs: ${r.paragraph.found} (${r.paragraph.complete ? "complete" : "incomplete"})`);
   L.push(`Quotations: ${r.quotes.distinct} of ${r.quotes.required} distinct (${r.quotes.complete ? "complete" : "incomplete"})`);
+  const st = r.quotes.strength;
+  L.push(`Quotation strength: ${r.quotes.distinct ? `${st.strong} strong, ${st.moderate} moderate, ${st.weak} weak${st.unrated ? `, ${st.unrated} not rated` : ""}` : "not assessed (no quotations)"}`);
+  for (const q of r.quotes.items.filter((x) => !x.duplicateOf && x.strength !== "strong")) L.push(`  Q${q.id}: ${q.strength || "not rated"}${q.strengthReason ? ": " + q.strengthReason : ""}`);
   L.push(`Topic sentence: ${r.topic.issues.length ? "needs revision: " + r.topic.issues.join(" | ") : "meets"}`);
   L.push(`Evidentiary claims: ${r.evidence.total ? `${r.evidence.failed} of ${r.evidence.total} lack one` : "not assessed (no quotations)"}`);
   for (const i of r.evidence.items.filter((x) => !x.pass)) L.push(`  Q${i.quoteId}: ${i.issue}`);
@@ -163,7 +166,7 @@ function findMarkSpans(t) {
 // Returns [{index (1-based), start, end, text}] with start/end into `t` (trimmed).
 function splitSentences(t, spans) {
   const m = t.split("");
-  const mask = (i) => { if (".!?".includes(m[i])) m[i] = ""; };
+  const mask = (i) => { if (".!?".includes(m[i])) m[i] = "\uE000"; }; // placeholder char, keeps string length
 
   // Punctuation inside quotations (except a final mark before the closing quote) is not a boundary.
   for (const { start, end } of spans) for (let i = start + 1; i < end - 2; i++) mask(i);
@@ -305,7 +308,14 @@ function locateQuotes(flat, sentences, reported) {
     if (!hasClose) notes.push("missing its closing quotation mark");
 
     const sentence = (sentences.find((s) => start >= s.start && start < s.end) || sentences[sentences.length - 1]).index;
-    found.push({ aiId: r.quote_id, text: flat.slice(start, end), start, end, markStart: hasOpen ? b : start, markEnd: hasClose ? a + 1 : end, sentence, notes, duplicateOf: null });
+    const rating = typeof r.strength === "string" ? r.strength.toLowerCase().trim() : "";
+    found.push({
+      id: 0, aiId: r.quote_id, text: flat.slice(start, end), start, end,
+      markStart: hasOpen ? b : start, markEnd: hasClose ? a + 1 : end, sentence, notes, duplicateOf: 0,
+      strength: ["strong", "moderate", "weak"].includes(rating) ? rating : null,
+      strengthReason: typeof r.strength_reason === "string" && r.strength_reason.trim() ? clip(r.strength_reason.trim(), 240) : null,
+      next: null, issues: [],
+    });
   }
   found.sort((x, y) => x.start - y.start);
   // Repeats and quotes-inside-quotes count once.
@@ -382,7 +392,7 @@ Do NOT rewrite the student's sentences and do NOT suggest replacement wording. R
 
 Return ONLY a JSON object of this exact shape:
 {
-  "quotations": [ { "quote_id": number, "sentence": number, "text": "the quoted words copied EXACTLY from the paragraph, without quotation marks or citation" } ],
+  "quotations": [ { "quote_id": number, "sentence": number, "text": "the quoted words copied EXACTLY from the paragraph, without quotation marks or citation", "strength": "strong"|"moderate"|"weak", "strength_reason": "one short sentence about THIS quotation" } ],
   "topic_sentence": { "declarative": true|false, "clear": true|false, "issues": ["short plain-language problem", ...] },
   "evidence": [ { "quote_id": number, "specific_claim": true|false, "named_referent": "the person/text/provision/event/etc. the claim is tied to, or null", "issue": "what is missing, or null" } ],
   "analysis": [ { "quote_id": number, "explains_value": true|false, "category": "explains"|"restates"|"continues_argument"|"self_evident"|"mismatch", "issue": "one short sentence, or null" } ],
@@ -391,7 +401,12 @@ Return ONLY a JSON object of this exact shape:
 
 RULES
 
-0. QUOTATIONS. Read the paragraph as an instructor would and list every direct quotation: words taken from a source and presented as that source's words (students use modified Harvard in-text citations such as "(Houghton 2024: 346)"). Students make punctuation mistakes, so still count a quotation when its opening or closing quotation mark is missing, when curly and straight marks are mixed, or when marks are misplaced; a citation right after the words, or a lead-in such as "X argues that", is strong evidence of a quotation. A quotation that contains a shorter quotation inside it (e.g. 'black mirror' inside a longer quote) is ONE quotation. Do NOT count single words or short phrases in quotation marks used as terms, titles, or scare quotes, and do not count the student's own paraphrase. Number quotations 1, 2, 3... in order of appearance. Copy "text" word for word from the paragraph (do not correct spelling or fill in words); leave out the quotation marks and the citation. List each passage once even if it is quoted twice.
+0. QUOTATIONS. Read the paragraph as an instructor would and list every direct quotation: words taken from a source and presented as that source's words (students use modified Harvard in-text citations such as "(Houghton 2024: 346)"). Students make punctuation mistakes, so still count a quotation when its opening or closing quotation mark is missing, when curly and straight marks are mixed, or when marks are misplaced; a citation right after the words, or a lead-in such as "X argues that", is strong evidence of a quotation. A quotation that contains a shorter quotation inside it (e.g. 'black mirror' inside a longer quote) is ONE quotation. Count a passage only if it is presented as a source's own words (a citation, or an attribution to the source). Words in quotation marks that are the student's own term, a title, or a scare quote with no source attached are NOT quotations. A paraphrase (the source's ideas in the student's own words, with no quoted words) is NEVER a quotation, even when it has a citation. Number quotations 1, 2, 3... in order of appearance. Copy "text" word for word from the paragraph (do not correct spelling or fill in words); leave out the quotation marks and the citation. List each passage once even if it is quoted twice.
+   For EVERY quotation, rate its evidentiary value as "strength", judging the quoted words themselves:
+   - "strong": the quoted words stand on their own as evidence. They contain a specific claim, fact, finding, figure, or named instance that would support a point even if read alone.
+   - "moderate": the quoted words carry some substance but rely mainly on the author's opinion, judgement, or general wording.
+   - "weak": just some words from the author: a term, short phrase, fragment, or bare opinion that does not work as evidence by itself.
+   Give "strength_reason": one short sentence about this specific quotation explaining the rating. Do not suggest a different quotation or rewrite anything.
 
 1. TOPIC SENTENCE. Judge sentence 1 only.
    - declarative = it makes a plain statement (not a question, command, exclamation, fragment, or an announcement like "This paragraph will discuss...").
@@ -522,10 +537,16 @@ function buildReport(base, judged) {
     distinct: counted.length,
     required: REQUIRED_QUOTES,
     unmatched: loc.unmatched,
+    strength: {
+      strong: counted.filter((q) => q.strength === "strong").length,
+      moderate: counted.filter((q) => q.strength === "moderate").length,
+      weak: counted.filter((q) => q.strength === "weak").length,
+      unrated: counted.filter((q) => !q.strength).length,
+    },
     items: allQ.map((q) => {
       const s = base.sentences[q.sentence - 1];
       const offset = q.markStart - s.start;
-      return { id: q.id, text: q.text, sentence: q.sentence, duplicateOf: q.duplicateOf, notes: q.notes, offset, length: Math.min(q.markEnd - q.markStart, s.text.length - offset) };
+      return { id: q.id, text: q.text, sentence: q.sentence, duplicateOf: q.duplicateOf || null, notes: q.notes, strength: q.strength, strengthReason: q.strengthReason, offset, length: Math.min(q.markEnd - q.markStart, s.text.length - offset) };
     }),
   };
 

@@ -88,7 +88,8 @@
     <summary>What is being checked</summary>
     <ul class="small">
       <li><strong>Single paragraph</strong>: the text is one paragraph (complete / incomplete).</li>
-      <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). Quotations are identified by the AI, so a missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it.</li>
+      <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). Quotations are identified by the AI, so a missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it. A paraphrase (a source's ideas in your own words) is not a quotation, even with a citation.</li>
+      <li><strong>Quotation strength</strong>: each quotation is rated Strong, Moderate or Weak on whether the quoted words stand on their own as evidence (a specific claim, fact, finding or named instance) or are just the author's opinion or a few words.</li>
       <li><strong>Topic sentence</strong>: the first sentence is a clear, declarative statement of your main claim.</li>
       <li><strong>Evidentiary claims</strong>: each quotation is tied to a specific claim and a named instance (a named author, text, provision, event, and so on).</li>
       <li><strong>Analysis after each quotation</strong>: the sentence right after a quotation states, in your own words, what the quotation shows. It does not restate it, treat it as self-evident, or carry on the argument without saying what the evidence establishes.</li>
@@ -185,6 +186,7 @@
     if (!r.quotes.complete) todo++;
     if (r.topic.pass === false) todo++;
     if (r.evidence.failed > 0) todo++;
+    if (r.quotes.strength.weak > 0) todo++;
     if (r.analysis.failed > 0) todo++;
     if (negFraming > 0) todo++;
     if (negPar > 0) todo++;
@@ -231,6 +233,10 @@
       `${plural(r.paragraph.found, "paragraph")} found`, "Required: 1"));
     rows.push(row("Three distinct quotations", r.quotes.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
       `${r.quotes.distinct} of ${r.quotes.required} distinct`, r.quotes.found !== r.quotes.distinct ? `${r.quotes.found} found, ${r.quotes.found - r.quotes.distinct} repeated` : ""));
+    const st = r.quotes.strength;
+    if (!r.quotes.distinct) rows.push(row("Quotation strength", pill("na", "Not assessed"), "—", "No quotations found"));
+    else rows.push(row("Quotation strength", st.weak ? pill("bad", "Needs revision") : pill("ok", "Meets"),
+      `${st.strong} strong · ${st.moderate} moderate · ${st.weak} weak` + (st.unrated ? ` · ${st.unrated} not rated` : ""), st.weak ? "Weak quotations need more ability to stand on their own" : ""));
 
     rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
 
@@ -288,15 +294,25 @@
     return n;
   }
 
+  const STRENGTH = {
+    strong: { label: "Strong", text: "Stands on its own as evidence." },
+    moderate: { label: "Moderate", text: "Partly stands on its own; mostly the author's opinion." },
+    weak: { label: "Weak", text: "Needs more ability to stand on its own." },
+    none: { label: "Not rated", text: "The strength of this quotation could not be rated. Try the check again." },
+  };
+
   function detailQuotes(r) {
-    const q = r.quotes, n = [el("h3", null, "Three distinct quotations")];
+    const q = r.quotes, n = [el("h3", null, "Three distinct quotations and their strength")];
     n.push(el("div", { class: "item " + (q.complete ? "ok" : "bad") },
       el("span", { class: "lbl" }, q.complete ? "Complete. " : "Incomplete. "),
       `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} found; ${q.required} required.`));
     for (const it of q.items) {
       if (it.duplicateOf) continue;
-      n.push(el("div", { class: "item" + (it.notes.length ? " bad" : "") },
-        el("span", { class: "lbl" }, `Q${it.id} (sentence ${it.sentence})` + (it.notes.length ? `: ${it.notes.join(" and ")}.` : ".")),
+      const rating = STRENGTH[it.strength] || STRENGTH.none;
+      n.push(el("div", { class: "item " + (it.strength === "weak" || it.notes.length ? "bad" : it.strength === "strong" ? "ok" : "") },
+        el("div", null, el("span", { class: "lbl" }, `Q${it.id} (sentence ${it.sentence}) · ${rating.label}: `), rating.text),
+        it.strengthReason ? el("div", { class: "small" }, it.strengthReason) : null,
+        it.notes.length ? el("div", { class: "small" }, `This quotation is ${it.notes.join(" and ")}.`) : null,
         el("blockquote", null, it.text)));
     }
     for (const it of q.items) {
