@@ -88,12 +88,14 @@
     <summary>What is being checked</summary>
     <ul class="small">
       <li><strong>Single paragraph</strong>: the text is one paragraph (complete / incomplete).</li>
-      <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). Quotations are identified by the AI, so a missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it. A paraphrase (a source's ideas in your own words) is not a quotation, even with a citation.</li>
+      <li><strong>Three distinct quotations</strong>: at least three different direct quotations (complete / incomplete). A missing or mismatched quotation mark does not stop one from counting; it is noted so you can fix it. A paraphrase (a source's ideas in your own words) is not a quotation, even with a citation.</li>
+      <li><strong>Framework before case</strong>: the theory or approach from the course comes before the case it is used to interpret (complete / incomplete).</li>
       <li><strong>Evidentiary claim</strong>: each quotation is rated Strong, Moderate or Weak on whether the quoted words themselves stand on their own as evidence: a specific claim built on a direct noun or named instance (a named policy, law, event, organisation, place, date or figure). Naming the author does not count.</li>
-      <li><strong>Topic sentence</strong>: the first sentence is a clear, declarative statement of your main claim.</li>
-      <li><strong>Analysis after each quotation</strong>: the sentence right after a quotation states, in your own words, what the quotation shows. It does not restate it, treat it as self-evident, or carry on the argument without saying what the evidence establishes.</li>
-      <li><strong>Negative framing</strong>: claims built on what something is not, lacks, or fails to do.</li>
-      <li><strong>Negative parallelism</strong>: "not X but Y" constructions. Each is reported as "If not X, then Y" so you can state Y directly.</li>
+      <li><strong>Topic sentence</strong>: one or two opening sentences that state your main claim clearly and declaratively, in your own voice (no quotations or citations).</li>
+      <li><strong>Explanation after each quotation</strong>: the sentence right after a quotation, in your own words. After a framework quotation, explain the author's idea. After a case quotation, say why the case is there and how the framework interprets it.</li>
+      <li><strong>Ending</strong>: a sentence on the overall significance, then a concluding sentence that restates the topic and bridges to the next paragraph, in your own voice.</li>
+      <li><strong>Declarative claims</strong>: claims stated plainly and owned. Flags claims that are implied or hedged instead of stated, negative framing, and "not X but Y" constructions (shown as "If not X, then Y").</li>
+      <li><strong>Possible typos</strong>: listed as a note at the bottom.</li>
     </ul>
   </details>
 
@@ -177,28 +179,28 @@
   // ------------------------------------------------------------------ rendering
   function render(r) {
     const nodes = [];
-    const negFraming = r.negatives.counts.framing, negPar = r.negatives.counts.parallelism;
 
     // Counts of things that need attention
     let todo = 0;
     if (!r.paragraph.complete) todo++;
     if (!r.quotes.complete) todo++;
-    if (r.topic.pass === false) todo++;
+    if (r.order.assessed && !r.order.complete) todo++;
     if (r.quotes.strength.weak > 0) todo++;
+    if (!r.topic.pass) todo++;
     if (r.analysis.failed > 0) todo++;
-    if (negFraming > 0) todo++;
-    if (negPar > 0) todo++;
+    if (!r.ending.pass) todo++;
+    if (r.claims.counts.total > 0) todo++;
     if (todo === 0) nodes.push(banner("ok", "All requirements met. Every check below passed."));
     else nodes.push(banner("bad", `${plural(todo, "requirement")} to revisit. Details and locations are below.`));
 
     nodes.push(el("h2", null, "Summary"));
-    nodes.push(scoreTable(r, negFraming, negPar));
+    nodes.push(scoreTable(r));
 
     nodes.push(el("h2", null, "Your paragraph, marked up"));
     nodes.push(annotated(r));
 
     nodes.push(el("h2", null, "Details"));
-    nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailAnalysis(r), ...detailNegatives(r));
+    nodes.push(...detailParagraph(r), ...detailQuotes(r), ...detailTopic(r), ...detailAnalysis(r), ...detailEnding(r), ...detailClaims(r), ...typoNote(r));
 
     nodes.push(feedbackBlock());
     if (r.logStatus) nodes.push(el("div", { id: "logStatus" }, `[System Log: ${r.logStatus}]`));
@@ -225,38 +227,43 @@
     return el("tr", null, el("td", null, el("strong", null, name)), el("td", null, status), el("td", null, count), el("td", { class: "small muted" }, note || ""));
   }
 
-  function scoreTable(r, negFraming, negPar) {
+  function scoreTable(r) {
     const rows = [];
     rows.push(row("Single paragraph", r.paragraph.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
       `${plural(r.paragraph.found, "paragraph")} found`, "Required: 1"));
     rows.push(row("Three distinct quotations", r.quotes.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"),
       `${r.quotes.distinct} of ${r.quotes.required} distinct`, r.quotes.found !== r.quotes.distinct ? `${r.quotes.found} found, ${r.quotes.found - r.quotes.distinct} repeated` : ""));
+    rows.push(row("Framework before case", !r.order.assessed ? pill("na", "Not assessed") : r.order.complete ? pill("ok", "Complete") : pill("bad", "Incomplete"), "—", r.order.note));
+
     const st = r.quotes.strength;
     if (!r.quotes.distinct) rows.push(row("Evidentiary claim", pill("na", "Not assessed"), "—", "No quotations found"));
     else rows.push(row("Evidentiary claim", st.weak ? pill("bad", "Needs revision") : pill("ok", "Meets"),
       `${st.strong} strong · ${st.moderate} moderate · ${st.weak} weak` + (st.unrated ? ` · ${st.unrated} not rated` : ""), st.weak ? "Weak quotations need more ability to stand on their own" : ""));
 
-    rows.push(row("Topic sentence", r.topic.issues.length ? pill("bad", "Needs revision") : pill("ok", "Meets"), plural(r.topic.issues.length, "issue"), "Sentence 1"));
+    rows.push(row("Topic sentence", r.topic.pass ? pill("ok", "Meets") : pill("bad", "Needs revision"), plural(r.topic.issues.length, "issue"), r.topic.sentences.length === 2 ? "Sentences 1–2" : "Sentence 1"));
 
+    if (!r.analysis.total) rows.push(row("Explanation after each quotation", pill("na", "Not assessed"), "—", "No quotations found"));
+    else rows.push(row("Explanation after each quotation", r.analysis.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
+      `${r.analysis.failed} of ${r.analysis.total} quotations lack it`, "Explain the author's idea (framework) or how the framework reads the case"));
 
-    if (!r.analysis.total) rows.push(row("Analysis after each quotation", pill("na", "Not assessed"), "—", "No quotations found"));
-    else rows.push(row("Analysis after each quotation", r.analysis.failed ? pill("bad", "Needs revision") : pill("ok", "Meets"),
-      `${r.analysis.failed} of ${r.analysis.total} quotations lack it`, "The next sentence must state the quotation's value in your own words"));
+    rows.push(row("Ending", r.ending.pass ? pill("ok", "Meets") : pill("bad", "Needs revision"), plural(r.ending.issues.length, "issue"), "Last two sentences"));
 
-    rows.push(row("Negative framing", negFraming ? pill("bad", "Found") : pill("ok", "None found"), plural(negFraming, "instance"), ""));
-    rows.push(row("Negative parallelism", negPar ? pill("bad", "Found") : pill("ok", "None found"), plural(negPar, "instance"), ""));
+    const c = r.claims.counts;
+    rows.push(row("Declarative claims", c.total ? pill("bad", "Found") : pill("ok", "None found"), plural(c.total, "instance"),
+      c.total ? [c.implied && `${c.implied} implied`, c.framing && `${c.framing} negative framing`, c.parallelism && `${c.parallelism} negative parallelism`].filter(Boolean).join(" · ") : ""));
 
-    const t = el("table", { class: "score" },
+    return el("table", { class: "score" },
       el("thead", null, el("tr", null, el("th", null, "Requirement"), el("th", null, "Status"), el("th", null, "Count"), el("th", null, "Note"))),
       el("tbody", null, rows));
-    return t;
   }
+
+  const CLAIM = { implied: "Implied claim", framing: "Negative framing", parallelism: "Negative parallelism" };
 
   function annotated(r) {
     const box = el("div", { id: "annotated" });
     r.sentences.forEach((s, i) => {
       const cls = ["s"];
-      if (s.negatives.length) cls.push("neg");
+      if (s.claims.length) cls.push("neg");
       if (s.isTopic) cls.push("topic");
       const span = el("span", { class: cls.join(" ") });
 
@@ -272,12 +279,12 @@
       span.append(s.text.slice(pos));
 
       if (s.isTopic) span.append(el("sup", { class: "m t", title: "Topic sentence" }, "Topic"));
-      for (const a of s.analysisFor) span.append(el("sup", { class: "m " + (a.pass === false ? "n" : ""), title: "This sentence should explain the value of quotation " + a.quoteId }, "A" + a.quoteId));
-      for (const n of s.negatives) span.append(el("sup", { class: "m n", title: n.type === "parallelism" ? "Negative parallelism" : "Negative framing" }, (n.type === "parallelism" ? "NP" : "NF") + n.id));
+      for (const a of s.analysisFor) span.append(el("sup", { class: "m " + (a.pass === false ? "n" : ""), title: "This sentence should explain quotation " + a.quoteId }, "A" + a.quoteId));
+      for (const c of s.claims) span.append(el("sup", { class: "m n", title: CLAIM[c.type] }, "D" + c.id));
       box.append(span, i < r.sentences.length - 1 ? " " : "");
     });
     const legend = el("p", { class: "legend" }, "Key: ", el("mark", { class: "q" }, "Q1"), " quotation · ", el("span", { class: "m t" }, "Topic"), " topic sentence (underlined blue) · ",
-      el("span", { class: "s neg" }, "NF/NP"), " negative framing / negative parallelism (red) · ", el("span", { class: "m" }, "A1"), " sentence that should explain quotation 1 (red if it does not)");
+      el("span", { class: "m" }, "A1"), " sentence that should explain quotation 1 (red if it does not) · ", el("span", { class: "s neg" }, "D1"), " declarative-claim issue (red)");
     return el("div", null, box, legend);
   }
 
@@ -295,17 +302,20 @@
     weak: { label: "Weak", text: "Needs more ability to stand on its own." },
     none: { label: "Not rated", text: "This quotation could not be rated. Try the check again." },
   };
+  const ROLE = { framework: "Framework", case: "Case", other: "Other" };
 
   function detailQuotes(r) {
-    const q = r.quotes, n = [el("h3", null, "Quotations and evidentiary claim")];
+    const q = r.quotes, n = [el("h3", null, "Quotations")];
     n.push(el("div", { class: "item " + (q.complete ? "ok" : "bad") },
       el("span", { class: "lbl" }, q.complete ? "Complete. " : "Incomplete. "),
       `${q.distinct} distinct ${q.distinct === 1 ? "quotation" : "quotations"} found; ${q.required} required.`));
+    if (r.order.assessed) n.push(el("div", { class: "item " + (r.order.complete ? "ok" : "bad") },
+      el("span", { class: "lbl" }, `Framework before case: ${r.order.complete ? "Complete" : "Incomplete"}. `), r.order.note));
     for (const it of q.items) {
       if (it.duplicateOf) continue;
       const rating = STRENGTH[it.strength] || STRENGTH.none;
       n.push(el("div", { class: "item " + (it.strength === "weak" || it.notes.length ? "bad" : it.strength === "strong" ? "ok" : "") },
-        el("div", null, el("span", { class: "lbl" }, `Q${it.id} (sentence ${it.sentence}) · ${rating.label}: `), rating.text),
+        el("div", null, el("span", { class: "lbl" }, `Q${it.id} (sentence ${it.sentence}) · ${ROLE[it.role] || "Other"} · ${rating.label}: `), rating.text),
         it.strengthReason ? el("div", { class: "small" }, it.strengthReason) : null,
         it.notes.length ? el("div", { class: "small" }, `This quotation is ${it.notes.join(" and ")}.`) : null,
         el("blockquote", null, it.text)));
@@ -317,31 +327,41 @@
     return n;
   }
 
+  function issueList(issues) {
+    return issues.map((i, k) => el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Issue ${k + 1}. `), i));
+  }
+  const quoted = (text) => el("blockquote", { class: "muted", style: "margin:.2rem 0 .4rem;padding-left:.7rem;border-left:3px solid var(--line)" }, text);
+
   function detailTopic(r) {
     const t = r.topic, n = [el("h3", null, "Topic sentence")];
-    n.push(el("blockquote", { class: "muted", style: "margin:.2rem 0 .4rem;padding-left:.7rem;border-left:3px solid var(--line)" }, t.text));
-    if (!t.issues.length) { n.push(el("div", { class: "item ok" }, el("span", { class: "lbl" }, "Meets. "), "Sentence 1 is a clear, declarative statement.")); return n; }
-    t.issues.forEach((i, k) => n.push(el("div", { class: "item bad" }, el("span", { class: "lbl" }, `Issue ${k + 1}. `), i)));
+    n.push(quoted(t.text));
+    if (t.pass) n.push(el("div", { class: "item ok" }, el("span", { class: "lbl" }, "Meets. "), "Clear, declarative, and in your own voice."));
+    else n.push(...issueList(t.issues));
     return n;
   }
 
-
-
-  const CAT = { nothing_follows: "Nothing follows", another_quote: "Another quotation", echoes_quote: "Reuses the quotation's wording", restates: "Restates the quotation", continues_argument: "Continues the argument", self_evident: "Assumes the quotation is self-evident", mismatch: "Does not match the quotation", unassessed: "Not assessed" };
+  const CAT = { nothing_follows: "Nothing follows", another_quote: "Another quotation", echoes_quote: "Reuses the quotation's wording", idea_unexplained: "Does not explain the author's idea", no_interpretation: "Does not interpret the case through the framework", restates: "Restates the quotation", continues_argument: "Continues the argument", self_evident: "Assumes the quotation is self-evident", mismatch: "Does not match the quotation", unassessed: "Not assessed" };
 
   function detailAnalysis(r) {
-    const a = r.analysis, n = [el("h3", null, "Analysis after each quotation")];
-    n.push(el("p", { class: "small muted" }, "Evidence first, then analysis. The sentence right after each quotation should say, in your own words, what the quotation shows. It should not restate the quotation, assume it speaks for itself, or move on to the next point."));
+    const a = r.analysis, n = [el("h3", null, "Explanation after each quotation")];
+    n.push(el("p", { class: "small muted" }, "The sentence right after each quotation should be in your own words. After a framework quotation, explain the author's idea. After a case quotation, say why the case is there and how the framework interprets it."));
     if (!a.total) { n.push(el("div", { class: "item" }, "Not assessed: no quotations were found.")); return n; }
-    n.push(el("p", null, `${a.failed} of ${a.total} ${a.total === 1 ? "quotation lacks" : "quotations lack"} its own explanation of evidentiary value in the sentence that follows.`));
     for (const it of a.items) {
       if (it.pass === null) continue;
       n.push(el("div", { class: "item " + (it.pass ? "ok" : "bad") },
-        el("span", { class: "lbl" }, `A${it.quoteId}: Q${it.quoteId} → ` + (it.nextSentence ? `sentence ${it.nextSentence}: ` : "") + (it.pass ? "explains its value." : (CAT[it.category] || "Needs revision") + ". ")),
+        el("span", { class: "lbl" }, `A${it.quoteId}: Q${it.quoteId} (${(ROLE[it.role] || "Other").toLowerCase()}) → ` + (it.nextSentence ? `sentence ${it.nextSentence}: ` : "") + (it.pass ? "explains it." : (CAT[it.category] || "Needs revision") + ". ")),
         it.issues.map((i) => el("div", null, i)),
-        el("blockquote", null, "Quotation: " + it.quote),
         it.nextText ? el("blockquote", null, "Next sentence: " + it.nextText) : null));
     }
+    return n;
+  }
+
+  function detailEnding(r) {
+    const e = r.ending, n = [el("h3", null, "Ending")];
+    if (e.summaryText) n.push(quoted(`Sentence ${e.summarySentence}: ${e.summaryText}`));
+    n.push(quoted(`Sentence ${e.lastSentence}: ${e.lastText}`));
+    if (e.pass) n.push(el("div", { class: "item ok" }, el("span", { class: "lbl" }, "Meets. "), "States the overall significance, then restates the topic and bridges forward."));
+    else n.push(...issueList(e.issues));
     return n;
   }
 
@@ -351,30 +371,28 @@
     return "The sentence defines its point by denial, so the positive claim is left unstated.";
   }
 
-  function negBlock(list, title, kind, r) {
-    const n = [el("h3", null, `${title} (${list.length})`)];
-    if (!list.length) {
-      n.push(el("div", { class: "item ok" }, "None found."));
-      return n;
-    }
+  function detailClaims(r) {
+    const list = r.claims.items, n = [el("h3", null, `Declarative claims (${list.length})`)];
+    n.push(el("p", { class: "small muted" }, "Each sentence should state its claim plainly and own it. Wording inside direct quotations is not counted; it belongs to your source."));
+    if (!list.length) { n.push(el("div", { class: "item ok" }, "None found.")); return n; }
     for (const it of list) {
       n.push(el("div", { class: "item bad" },
-        el("div", null, el("span", { class: "lbl" }, `${kind}${it.id} · sentence ${it.sentence}`)),
+        el("div", null, el("span", { class: "lbl" }, `D${it.id} · sentence ${it.sentence} · ${CLAIM[it.type]}`)),
         el("blockquote", null, it.sentenceText),
         it.trigger ? el("div", { class: "kv" }, el("b", null, "Signal words:"), `“${it.trigger}”`) : null,
-        el("div", { class: "kv ifnot" }, ifNot(it)),
-        it.y ? el("div", { class: "small muted" }, "State that positive claim directly instead of arriving at it through the denial.") : el("div", { class: "small muted" }, "Say what you mean directly in the positive.")));
+        it.type === "implied"
+          ? el("div", { class: "kv ifnot" }, "State the claim directly and take ownership of it.")
+          : [el("div", { class: "kv ifnot" }, ifNot(it)),
+             el("div", { class: "small muted" }, it.y ? "State that positive claim directly instead of arriving at it through the denial." : "Say what you mean directly in the positive.")]));
     }
     return n;
   }
 
-  function detailNegatives(r) {
-    return [
-      el("h3", null, "Negative framing and negative parallelism"),
-      el("p", { class: "small muted" }, "Negatives inside direct quotations are not counted; they belong to your source."),
-      ...negBlock(r.negatives.framing, "Negative framing", "NF", r),
-      ...negBlock(r.negatives.parallelism, "Negative parallelism", "NP", r),
-    ];
+  function typoNote(r) {
+    if (!r.typos || !r.typos.length) return [];
+    return [el("h3", null, "Possible typos"),
+      el("p", { class: "small" }, r.typos.map((t) => `${t.word} → ${t.suggestion}` + (t.sentence ? ` (sentence ${t.sentence})` : "")).join(" · ")),
+      el("p", { class: "small muted" }, "Check these yourself; names and specialised terms are sometimes flagged by mistake.")];
   }
 </script>
 </body>
