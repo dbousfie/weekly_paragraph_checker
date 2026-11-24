@@ -11,12 +11,14 @@ A student-facing web page that checks whether a single pasted paragraph meets ba
 | **Single paragraph** | Code: counts line-break-separated blocks | Complete / Incomplete, with number of paragraphs found |
 | **Three distinct quotations** | Azure identifies the direct quotations as a marker would (missing or mismatched quotation marks and quotes-within-quotes still count; scare-quoted terms don't). Code then confirms each one's exact words appear in the paragraph, so none can be invented, and counts repeats once | Complete / Incomplete, with "N of 3 distinct", each quotation listed, and any missing quotation mark noted |
 | **Evidentiary claim** | Azure rates each direct quotation on the quoted words alone (naming the author does not count): **Strong** (a specific claim built on a direct noun or named instance such as a named policy, law, event, organisation, place, date or figure), **Moderate** (a general claim or the author's opinion, no named instance), **Weak** (just a term, phrase, fragment, question or bare opinion). Weak quotations still count toward the three; a paraphrase never counts as a quotation, even with a citation | Rating per quotation with a one-line reason; Weak shows "Needs more ability to stand on its own"; summary shows the count of each |
-| **Topic sentence** (sentence 1) | Code catches questions, exclamations, fragments, "This paragraph will discuss…"; Azure judges declarative and clear | Meets / Needs revision, with each issue listed |
-| **Analysis after each quotation** | Code: flags no following sentence, another quotation, or reused wording (4+ shared words). Azure: does the *immediately following sentence*, on its own, state the quotation's evidentiary value in the student's words and match what the quote says? | Per-quotation pass/fail with the category (restates, continues the argument, assumes it is self-evident, mismatch, nothing follows), the quote, and the next sentence |
-| **Negative framing** | Azure: claims built on what something is not, lacks, or fails to do | Count, each sentence, signal words, "If not X, then Y" |
-| **Negative parallelism** | Code patterns ("not X but Y", "not only… but also", "isn't X; it's Y", "X, not Y", "rather than", "never X; rather Y", "neither… nor", "less X than Y", "more than just X") plus Azure | Same as above |
+| **Framework before case** | Azure labels each quotation as framework (theory/approach from the course) or case (the instance examined); code checks the first framework quotation comes before the first case quotation | Complete / Incomplete, naming the quotations involved (soft check) |
+| **Topic sentence** (1–2 sentences) | Code catches questions, exclamations, fragments, "This paragraph will discuss…", and any quotation or citation (must be in the student's own voice); Azure judges declarative and clear, and whether sentence 2 continues the introduction | Meets / Needs revision, with each issue listed |
+| **Explanation after each quotation** | Code: flags no following sentence, another quotation, or reused wording (4+ shared words). Azure, by role: after a framework quotation, does the next sentence explain the author's idea in the student's words? After a case quotation, does it say why the case is there and how the framework interprets it? | Per-quotation pass/fail with the role and the problem (e.g. "Does not interpret the case through the framework") |
+| **Ending** | Azure: is the second-to-last sentence a summary of overall significance, and does the last sentence restate the topic and bridge forward? Code: the concluding sentence has no quotation or citation | Meets / Needs revision, with each issue listed |
+| **Declarative claims** | Azure (judged on meaning, not word lists): claims implied or hedged instead of stated and owned (e.g. presenting an author's argument as a mere suggestion), negative framing, and negative parallelism; code patterns also catch obvious "not X but Y", "rather than", "neither… nor" constructions | One row with the total; each instance listed as D1, D2… with its type, the sentence, the signal words, and "If not X, then Y" for negatives |
+| **Possible typos** | Azure lists clear misspellings in the student's own words (Canadian, British and American spellings accepted; names and terms not flagged); code confirms each word is in the text and outside quotations | A short note at the bottom, not counted as a requirement |
 
-Paragraph and quotation count are "soft" (complete/incomplete only). The others are the substantive checks and always give specific instances with counts.
+Paragraph, quotation count and framework-before-case are "soft" (complete/incomplete only); typos are a note only. The others are the substantive checks and always give specific instances with counts.
 
 **"If not X, then Y":** for every negative instance the report gives X (what is denied) and Y (what is asserted or implied instead), e.g. *If not “partnership”, then “Canada’s foreign policy… is defined by asymmetry”*, so the student sees the positive claim they can state directly. The model is told not to rewrite the student's sentences.
 
@@ -44,15 +46,15 @@ Constants at the top of `worker.js` (redeploy after editing):
 
 ## Testing
 
-`npm test` (Node 18+) runs 23 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
+`npm test` (Node 18+) runs 16 tests against the worker with Azure mocked. No keys or network needed. Re-run after editing `worker.js`.
 
 ## Known limits
 
-- The topic sentence is taken to be the **first sentence**.
+- The topic is the **first sentence**, or the first two when the second continues the introduction with no quotation or citation. The ending is judged on the **last two sentences**.
 - "Immediately following" means the next sentence, strictly. If a student explains the quote in the same sentence ("…, which shows…") or two sentences later, the check fails by design: the explanation must stand on its own after the evidence. Two quotes in one sentence share one following sentence, and each is judged separately.
 - Text pasted from a PDF often has hard line breaks that read as several paragraphs; the report says so.
 - Which passages count as quotations is the AI's judgement; code only confirms the words are really in the paragraph.
-- The AI-judged parts (which passages are quotations, evidentiary claim ratings, topic sentence clarity, analysis, negative framing) are judgements, not proofs; the page tells students to treat them as a prompt to re-read. Spot-check with real student paragraphs before relying on it.
+- The AI-judged parts (which passages are quotations, framework/case labels, evidentiary claim ratings, topic sentence clarity, explanations, ending, declarative claims, typos) are judgements, not proofs; the page tells students to treat them as a prompt to re-read. Spot-check with real student paragraphs before relying on it.
 - A model can miss or over-flag negatives. The code patterns are a floor for parallelism, not a ceiling.
 
 ## Data handling
